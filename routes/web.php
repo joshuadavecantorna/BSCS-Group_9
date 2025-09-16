@@ -22,6 +22,10 @@ Route::get('files/download/{filename}', [App\Http\Controllers\FilesController::c
     ->middleware(['auth', 'verified'])
     ->name('files.download');
 
+Route::get('files/{filename}', [App\Http\Controllers\FilesController::class, 'download'])
+    ->middleware(['auth', 'verified'])
+    ->name('files.view');
+
 Route::delete('files/{filename}', [App\Http\Controllers\FilesController::class, 'destroy'])
     ->middleware(['auth', 'verified'])
     ->name('files.destroy');

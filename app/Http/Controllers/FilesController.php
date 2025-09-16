@@ -40,20 +40,12 @@ class FilesController extends Controller
         
         // Store file in category-specific directory
         $path = $file->storeAs('files/' . $category, $filename, 'public');
-        
+
         // In a real app, you'd save file metadata to database
-        // For now, we'll return success response
-        
-        return response()->json([
-            'success' => true,
-            'message' => 'File uploaded successfully',
-            'file' => [
-                'name' => $file->getClientOriginalName(),
-                'size' => $file->getSize(),
-                'type' => $file->getMimeType(),
-                'path' => $path,
-                'category' => $category
-            ]
+        // Return updated files list for instant loading
+
+        return Inertia::render('Files', [
+            'files' => $this->getFilesFromStorage()
         ]);
     }
 
@@ -85,10 +77,9 @@ class FilesController extends Controller
         }
         
         Storage::disk('public')->delete($filePath);
-        
-        return response()->json([
-            'success' => true,
-            'message' => 'File deleted successfully'
+
+        return Inertia::render('Files', [
+            'files' => $this->getFilesFromStorage()
         ]);
     }
 
