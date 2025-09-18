@@ -9,6 +9,12 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Upload, FileText, Download, Trash2, Folder, Plus, Search, Share2, Eye, Users } from 'lucide-vue-next';
+import { type BreadcrumbItem } from '@/types';
+
+// Breadcrumbs
+const breadcrumbs: BreadcrumbItem[] = [
+  { title: 'Files', href: '/files' }
+];
 
 // File interface
 interface FileItem {
@@ -251,8 +257,8 @@ onMounted(() => {
 <template>
   <Head title="Files" />
 
-  <AppLayout>
-    <div class="space-y-6">
+  <AppLayout :breadcrumbs="breadcrumbs">
+    <div class="space-y-6 p-6">
       <!-- Header -->
       <div class="flex items-center justify-between">
         <div>

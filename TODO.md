@@ -1,9 +1,11 @@
-- [x] Enhance drag-and-drop upload area styling for better visual feedback
-- [x] Improve file selection list display and remove button styling
-- [x] Refine delete button UI on file cards with better spacing and hover states
-- [x] Add accessibility improvements (ARIA labels, focus states)
-- [x] Ensure consistent spacing and typography in upload dialog
-- [x] Fix HTML/CSS for search files and category filters to look good
-- [x] Ensure delete button doesn't overlap and looks good
-- [x] Fix routing for file access and make icons clickable
-- [x] Test UI updates for adding and deleting files
+# Files Page Improvements
+
+## Tasks
+- [x] Add breadcrumbs to Files.vue page
+- [x] Add padding to main container for better spacing
+- [x] Pass breadcrumbs prop to AppLayout component
+
+## Details
+- Breadcrumbs: Add a single breadcrumb item "Files" pointing to the current route
+- Padding: Add padding classes to the main container div (e.g., p-6 or similar)
+- Ensure the page looks good and has proper spacing
