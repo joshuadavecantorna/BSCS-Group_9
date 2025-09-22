@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import AppLayout from '@/layouts/AppLayout.vue';
-import { dashboard } from '@/routes';
+import { dashboard, reports } from '@/routes';
 import { type BreadcrumbItem } from '@/types';
 import { Head } from '@inertiajs/vue3';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -66,6 +66,7 @@ const attendanceRate = computed(() => {
 });
 
 // Helpers
+import { router } from '@inertiajs/vue3';
 const openQRScanner = () => console.log("Opening QR Scanner...");
 const submitManualEntry = () => {
   if (manualEntry.value.studentId) {
@@ -73,6 +74,14 @@ const submitManualEntry = () => {
     manualEntry.value.studentId = '';
   }
 };
+
+const quickActions = [
+  { label: 'Create Class', icon: Plus, handler: () => console.log('Create class') },
+  { label: 'Upload Student List', icon: Upload, handler: () => console.log('Upload list') },
+  { label: 'Start Attendance', icon: Timer, handler: () => console.log('Start attendance') },
+  { label: 'View Reports', icon: TrendingUp, handler: () => router.visit(reports().url) },
+];
+
 const getInitials = (name: string) => name.split(' ').map(n => n[0]).join('').toUpperCase();
 const getStatusColor = (status: string) => {
   switch (status) {
@@ -117,12 +126,8 @@ const getStatusColor = (status: string) => {
       </div>
 
       <!-- Quick Actions -->
-      <div class="grid gap-4 md:grid-cols-3">
-        <Card v-for="action in [
-          { label:'Create Class', icon: Plus, handler:()=>console.log('Create class') },
-          { label:'Upload Student List', icon: Upload, handler:()=>console.log('Upload list') },
-          { label:'Start Attendance', icon: Timer, handler:()=>console.log('Start attendance') }
-        ]" :key="action.label" class="hover:shadow-md transition">
+      <div class="grid gap-4 md:grid-cols-4">
+        <Card v-for="action in quickActions" :key="action.label" class="hover:shadow-md transition">
           <CardHeader>
             <CardTitle class="flex items-center gap-2">
               <component :is="action.icon" class="h-5 w-5" />
