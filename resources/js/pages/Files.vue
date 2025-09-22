@@ -9,11 +9,13 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Upload, FileText, Download, Trash2, Folder, Plus, Search, Share2, Eye, Users } from 'lucide-vue-next';
+import { dashboard } from '@/routes';
 import { type BreadcrumbItem } from '@/types';
 
 // Breadcrumbs
 const breadcrumbs: BreadcrumbItem[] = [
-  { title: 'Files', href: '/files' }
+  { title: 'Dashboard', href: dashboard().url },
+  { title: 'Files', href: '#' }
 ];
 
 // File interface
@@ -29,6 +31,7 @@ interface FileItem {
   shared_with?: string[];
   is_shared?: boolean;
   download_count?: number;
+  class_linked?: string;
 }
 
 // Props from Inertia
@@ -42,6 +45,7 @@ const searchQuery = ref('');
 const selectedCategory = ref('all');
 const isUploadDialogOpen = ref(false);
 const uploadCategory = ref('attendance-reports');
+const uploadClassLinked = ref('General');
 const isLoading = ref(false);
 const isDragOver = ref(false);
 const shareDialogOpen = ref(false);
@@ -59,6 +63,16 @@ const categories = [
   { value: 'parent-communications', label: 'Parent Communications' },
   { value: 'administrative', label: 'Administrative Documents' },
   { value: 'templates', label: 'Templates & Forms' }
+];
+
+const classOptions = [
+  { value: 'General', label: 'General' },
+  { value: 'BSCS-A', label: 'BSCS Section A' },
+  { value: 'BSCS-B', label: 'BSCS Section B' },
+  { value: 'BSIT-A', label: 'BSIT Section A' },
+  { value: 'BSIT-B', label: 'BSIT Section B' },
+  { value: 'BSCE-A', label: 'BSCE Section A' },
+  { value: 'BSME-A', label: 'BSME Section A' }
 ];
 
 // Computed properties
@@ -186,6 +200,7 @@ const handleUpload = async () => {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('category', uploadCategory.value);
+      formData.append('class_linked', uploadClassLinked.value);
 
       await new Promise<void>((resolve, reject) => {
         router.post('/files', formData, {
@@ -203,6 +218,7 @@ const handleUpload = async () => {
                 uploaded_at: new Date().toISOString(),
                 uploaded_by: 'You', // Assume current user
                 category: uploadCategory.value,
+                class_linked: uploadClassLinked.value,
               };
               files.value.push(mockFile);
             }
@@ -216,6 +232,7 @@ const handleUpload = async () => {
     }
     selectedFiles.value = [];
     uploadCategory.value = 'attendance-reports';
+    uploadClassLinked.value = 'General';
     isUploadDialogOpen.value = false;
   } catch (error) {
     console.error('Upload failed:', error);
@@ -307,7 +324,7 @@ onMounted(() => {
                     type="file"
                     multiple
                     @change="handleFileSelect"
-                    accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.jpg,.jpeg,.png,.gif"
+                    accept=".pdf,.csv,.xls,.xlsx"
                     class="hidden"
                     ref="fileInput"
                     aria-label="Select files to upload"
@@ -316,7 +333,7 @@ onMounted(() => {
                     Browse Files
                   </label>
                   <p class="text-xs text-muted-foreground mt-3">
-                    Supports: PDF, Word, Excel, PowerPoint, Images
+                    Supports: PDF, CSV, Excel files
                   </p>
                 </div>
               </div>
@@ -330,6 +347,19 @@ onMounted(() => {
                 >
                   <option v-for="category in categories.slice(1)" :key="category.value" :value="category.value">
                     {{ category.label }}
+                  </option>
+                </select>
+              </div>
+
+              <div class="grid gap-2">
+                <Label for="class-linked">Class Linked</Label>
+                <select
+                  id="class-linked"
+                  v-model="uploadClassLinked"
+                  class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <option v-for="classOption in classOptions" :key="classOption.value" :value="classOption.value">
+                    {{ classOption.label }}
                   </option>
                 </select>
               </div>
@@ -430,7 +460,14 @@ onMounted(() => {
               </div>
               
               <div class="flex items-center justify-between text-xs text-muted-foreground">
-                <span>Date</span>
+                <span>Class Linked</span>
+                <Badge variant="outline" class="text-xs">
+                  {{ file.class_linked || 'General' }}
+                </Badge>
+              </div>
+              
+              <div class="flex items-center justify-between text-xs text-muted-foreground">
+                <span>Date Uploaded</span>
                 <span>{{ formatDate(file.uploaded_at) }}</span>
               </div>
               
