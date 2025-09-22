@@ -14,46 +14,51 @@
       <div class="grid gap-4 md:grid-cols-5">
         <Card>
           <CardContent class="p-4">
-            <div class="flex items-center gap-2">
+            <div class="flex items-center justify-between mb-2">
+              <Users class="h-5 w-5 text-blue-500" />
               <div class="w-2 h-2 bg-blue-500 rounded-full"></div>
-              <span class="text-sm font-medium">Total Records</span>
             </div>
+            <span class="text-sm font-medium">Total Records</span>
             <div class="text-2xl font-bold mt-1">{{ summaryStats.total }}</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent class="p-4">
-            <div class="flex items-center gap-2">
+            <div class="flex items-center justify-between mb-2">
+              <UserCheck class="h-5 w-5 text-green-500" />
               <div class="w-2 h-2 bg-green-500 rounded-full"></div>
-              <span class="text-sm font-medium">Present</span>
             </div>
+            <span class="text-sm font-medium">Present</span>
             <div class="text-2xl font-bold mt-1 text-green-600">{{ summaryStats.present }}</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent class="p-4">
-            <div class="flex items-center gap-2">
+            <div class="flex items-center justify-between mb-2">
+              <UserX class="h-5 w-5 text-red-500" />
               <div class="w-2 h-2 bg-red-500 rounded-full"></div>
-              <span class="text-sm font-medium">Absent</span>
             </div>
+            <span class="text-sm font-medium">Absent</span>
             <div class="text-2xl font-bold mt-1 text-red-600">{{ summaryStats.absent }}</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent class="p-4">
-            <div class="flex items-center gap-2">
+            <div class="flex items-center justify-between mb-2">
+              <AlertTriangle class="h-5 w-5 text-yellow-500" />
               <div class="w-2 h-2 bg-yellow-500 rounded-full"></div>
-              <span class="text-sm font-medium">Excused</span>
             </div>
+            <span class="text-sm font-medium">Excused</span>
             <div class="text-2xl font-bold mt-1 text-yellow-600">{{ summaryStats.excused }}</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent class="p-4">
-            <div class="flex items-center gap-2">
+            <div class="flex items-center justify-between mb-2">
+              <Clock class="h-5 w-5 text-orange-500" />
               <div class="w-2 h-2 bg-orange-500 rounded-full"></div>
-              <span class="text-sm font-medium">Late</span>
             </div>
+            <span class="text-sm font-medium">Late</span>
             <div class="text-2xl font-bold mt-1 text-orange-600">{{ summaryStats.late }}</div>
           </CardContent>
         </Card>
@@ -219,7 +224,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Calendar, FileText, Mail, Download, Filter, ChevronUp, ChevronDown } from 'lucide-vue-next';
+import { Calendar, FileText, Mail, Download, Filter, ChevronUp, ChevronDown, Users, UserCheck, UserX, Clock, AlertTriangle } from 'lucide-vue-next';
 import { ref, computed } from 'vue';
 
 // Breadcrumbs

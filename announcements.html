@@ -1,0 +1,896 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Announcements - Teacher Dashboard</title>
+    <style>
+        /* Reset and base styles */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background-color: #0f172a;
+            color: #e2e8f0;
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        /* Container and layout */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 1rem;
+        }
+
+        .main-layout {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 2rem;
+        }
+
+        @media (min-width: 768px) {
+            .main-layout {
+                grid-template-columns: 2fr 1fr;
+            }
+        }
+
+        /* Header */
+        header {
+            background-color: #1e293b;
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #f8fafc;
+        }
+
+        /* Button styles */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            background-color: #3b82f6;
+            color: white;
+        }
+
+        .btn:hover {
+            background-color: #2563eb;
+            transform: translateY(-1px);
+        }
+
+        .btn:focus {
+            outline: 2px solid #60a5fa;
+            outline-offset: 2px;
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn-secondary {
+            background-color: #475569;
+        }
+
+        .btn-secondary:hover {
+            background-color: #334155;
+        }
+
+        /* Announcement cards */
+        .announcements-section {
+            background-color: #1e293b;
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .announcement-card {
+            background-color: #334155;
+            border-radius: 0.5rem;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            border-left: 4px solid #3b82f6;
+            transition: all 0.2s ease;
+        }
+
+        .announcement-card:hover {
+            background-color: #475569;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px -5px rgba(0, 0, 0, 0.2);
+        }
+
+        .announcement-card.pinned {
+            border-left-color: #f59e0b;
+            background-color: #374151;
+        }
+
+        .announcement-card.pinned:hover {
+            background-color: #4b5563;
+        }
+
+        .announcement-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 0.75rem;
+            gap: 1rem;
+        }
+
+        .announcement-title {
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: #f8fafc;
+            margin: 0;
+        }
+
+        .announcement-meta {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.875rem;
+            color: #94a3b8;
+            flex-shrink: 0;
+        }
+
+        .pinned-badge {
+            background-color: #f59e0b;
+            color: #1f2937;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .announcement-body {
+            color: #cbd5e1;
+            margin-bottom: 1rem;
+        }
+
+        .announcement-author {
+            font-size: 0.875rem;
+            color: #94a3b8;
+        }
+
+        /* Pagination */
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 2rem;
+        }
+
+        .pagination button {
+            padding: 0.5rem 1rem;
+            border: 1px solid #475569;
+            background-color: #334155;
+            color: #e2e8f0;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .pagination button:hover:not(:disabled) {
+            background-color: #475569;
+        }
+
+        .pagination button:focus {
+            outline: 2px solid #60a5fa;
+            outline-offset: 2px;
+        }
+
+        .pagination button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .pagination .current-page {
+            background-color: #3b82f6;
+            border-color: #3b82f6;
+            color: white;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            background-color: #1e293b;
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            height: fit-content;
+        }
+
+        .sidebar h3 {
+            color: #f8fafc;
+            margin-bottom: 1rem;
+            font-size: 1.125rem;
+        }
+
+        .help-text {
+            color: #94a3b8;
+            font-size: 0.875rem;
+            line-height: 1.5;
+        }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .modal-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .modal {
+            background-color: #1e293b;
+            border-radius: 0.75rem;
+            padding: 2rem;
+            width: 90%;
+            max-width: 500px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            transform: scale(0.9);
+            transition: transform 0.3s ease;
+        }
+
+        .modal-overlay.active .modal {
+            transform: scale(1);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .modal-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #f8fafc;
+            margin: 0;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            color: #94a3b8;
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 0.25rem;
+            border-radius: 0.25rem;
+            transition: color 0.2s ease;
+        }
+
+        .close-btn:hover {
+            color: #e2e8f0;
+        }
+
+        .close-btn:focus {
+            outline: 2px solid #60a5fa;
+            outline-offset: 2px;
+        }
+
+        /* Form styles */
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+            color: #f8fafc;
+        }
+
+        .form-input,
+        .form-textarea {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #475569;
+            border-radius: 0.5rem;
+            background-color: #334155;
+            color: #e2e8f0;
+            font-size: 0.875rem;
+            transition: border-color 0.2s ease;
+        }
+
+        .form-input:focus,
+        .form-textarea:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        .form-textarea {
+            resize: vertical;
+            min-height: 120px;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .form-checkbox {
+            width: 1rem;
+            height: 1rem;
+            accent-color: #3b82f6;
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 1rem;
+            justify-content: flex-end;
+            margin-top: 2rem;
+        }
+
+        .error-message {
+            color: #ef4444;
+            font-size: 0.875rem;
+            margin-top: 0.25rem;
+        }
+
+        /* Focus trap styles */
+        .modal *:focus {
+            outline: 2px solid #60a5fa;
+            outline-offset: 2px;
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 767px) {
+            .container {
+                padding: 0.75rem;
+            }
+
+            .header-content {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .modal {
+                padding: 1.5rem;
+                margin: 1rem;
+            }
+
+            .form-actions {
+                flex-direction: column;
+            }
+
+            .btn {
+                justify-content: center;
+            }
+        }
+
+        /* Screen reader only */
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <h1>Announcements</h1>
+                <button class="btn" id="newAnnouncementBtn" aria-describedby="new-announcement-help">
+                    <span>+</span>
+                    New Announcement
+                </button>
+            </div>
+        </header>
+
+        <main class="main-layout">
+            <section class="announcements-section" role="main" aria-label="Announcements list">
+                <div id="announcementsList">
+                    <!-- Sample announcements -->
+                    <article class="announcement-card pinned" role="article" aria-labelledby="announcement-1-title">
+                        <div class="announcement-header">
+                            <h2 class="announcement-title" id="announcement-1-title">Important: Upcoming Parent-Teacher Conference</h2>
+                            <div class="announcement-meta">
+                                <span class="pinned-badge">Pinned</span>
+                                <time datetime="2024-01-15T10:30:00Z">2 hours ago</time>
+                            </div>
+                        </div>
+                        <div class="announcement-body">
+                            Please note that our Parent-Teacher Conference is scheduled for next Friday, January 26th, from 3:00 PM to 7:00 PM. All parents are encouraged to attend to discuss their child's progress.
+                        </div>
+                        <div class="announcement-author">By: Ms. Johnson</div>
+                    </article>
+
+                    <article class="announcement-card" role="article" aria-labelledby="announcement-2-title">
+                        <div class="announcement-header">
+                            <h2 class="announcement-title" id="announcement-2-title">Field Trip Permission Slips Due</h2>
+                            <div class="announcement-meta">
+                                <time datetime="2024-01-14T14:15:00Z">1 day ago</time>
+                            </div>
+                        </div>
+                        <div class="announcement-body">
+                            Permission slips for the upcoming science museum field trip are due by Wednesday, January 24th. Please ensure your child returns the completed form with your signature.
+                        </div>
+                        <div class="announcement-author">By: Mr. Davis</div>
+                    </article>
+
+                    <article class="announcement-card" role="article" aria-labelledby="announcement-3-title">
+                        <div class="announcement-header">
+                            <h2 class="announcement-title" id="announcement-3-title">Homework Policy Reminder</h2>
+                            <div class="announcement-meta">
+                                <time datetime="2024-01-13T09:00:00Z">2 days ago</time>
+                            </div>
+                        </div>
+                        <div class="announcement-body">
+                            Just a friendly reminder about our homework policy. Students should spend approximately 30 minutes on homework each evening. If your child is struggling with assignments, please don't hesitate to reach out.
+                        </div>
+                        <div class="announcement-author">By: Mrs. Wilson</div>
+                    </article>
+                </div>
+
+                <nav class="pagination" role="navigation" aria-label="Announcements pagination">
+                    <button id="prevBtn" aria-label="Previous page" disabled>Previous</button>
+                    <button class="current-page" aria-label="Current page, page 1" aria-current="page">1</button>
+                    <button aria-label="Page 2">2</button>
+                    <button aria-label="Page 3">3</button>
+                    <button id="nextBtn" aria-label="Next page">Next</button>
+                </nav>
+            </section>
+
+            <aside class="sidebar" role="complementary" aria-label="Announcements help">
+                <h3>Quick Tips</h3>
+                <div class="help-text">
+                    <p><strong>Creating Announcements:</strong> Use clear, concise language and include all necessary details.</p>
+                    <p><strong>Pinning:</strong> Pin important announcements to keep them at the top of the list.</p>
+                    <p><strong>Timing:</strong> Consider the best time to send announcements for maximum visibility.</p>
+                </div>
+            </aside>
+        </main>
+    </div>
+
+    <!-- Modal for creating new announcements -->
+    <div class="modal-overlay" id="modalOverlay" role="dialog" aria-labelledby="modalTitle" aria-modal="true" aria-hidden="true">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 class="modal-title" id="modalTitle">Create New Announcement</h2>
+                <button class="close-btn" id="closeModalBtn" aria-label="Close modal">&times;</button>
+            </div>
+            
+            <form id="announcementForm" novalidate>
+                <div class="form-group">
+                    <label for="announcementTitle" class="form-label">Title *</label>
+                    <input 
+                        type="text" 
+                        id="announcementTitle" 
+                        name="title" 
+                        class="form-input" 
+                        required 
+                        aria-describedby="title-error"
+                        autocomplete="off"
+                    >
+                    <div id="title-error" class="error-message" role="alert" aria-live="polite"></div>
+                </div>
+
+                <div class="form-group">
+                    <label for="announcementBody" class="form-label">Body *</label>
+                    <textarea 
+                        id="announcementBody" 
+                        name="body" 
+                        class="form-textarea" 
+                        required 
+                        aria-describedby="body-error"
+                    ></textarea>
+                    <div id="body-error" class="error-message" role="alert" aria-live="polite"></div>
+                </div>
+
+                <div class="form-group">
+                    <div class="checkbox-group">
+                        <input 
+                            type="checkbox" 
+                            id="announcementPinned" 
+                            name="pinned" 
+                            class="form-checkbox"
+                        >
+                        <label for="announcementPinned" class="form-label">Pin this announcement</label>
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" id="cancelBtn">Cancel</button>
+                    <button type="submit" class="btn">Create Announcement</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let currentPage = 1;
+        let announcementsPerPage = 5;
+        let announcements = [
+            {
+                id: 1,
+                title: "Important: Upcoming Parent-Teacher Conference",
+                body: "Please note that our Parent-Teacher Conference is scheduled for next Friday, January 26th, from 3:00 PM to 7:00 PM. All parents are encouraged to attend to discuss their child's progress.",
+                author: "Ms. Johnson",
+                timestamp: new Date('2024-01-15T10:30:00Z'),
+                pinned: true
+            },
+            {
+                id: 2,
+                title: "Field Trip Permission Slips Due",
+                body: "Permission slips for the upcoming science museum field trip are due by Wednesday, January 24th. Please ensure your child returns the completed form with your signature.",
+                author: "Mr. Davis",
+                timestamp: new Date('2024-01-14T14:15:00Z'),
+                pinned: false
+            },
+            {
+                id: 3,
+                title: "Homework Policy Reminder",
+                body: "Just a friendly reminder about our homework policy. Students should spend approximately 30 minutes on homework each evening. If your child is struggling with assignments, please don't hesitate to reach out.",
+                author: "Mrs. Wilson",
+                timestamp: new Date('2024-01-13T09:00:00Z'),
+                pinned: false
+            }
+        ];
+
+        // DOM elements
+        const modalOverlay = document.getElementById('modalOverlay');
+        const modal = modalOverlay.querySelector('.modal');
+        const newAnnouncementBtn = document.getElementById('newAnnouncementBtn');
+        const closeModalBtn = document.getElementById('closeModalBtn');
+        const cancelBtn = document.getElementById('cancelBtn');
+        const announcementForm = document.getElementById('announcementForm');
+        const announcementsList = document.getElementById('announcementsList');
+        const prevBtn = document.getElementById('prevBtn');
+        const nextBtn = document.getElementById('nextBtn');
+
+        // Focus trap variables
+        let firstFocusableElement;
+        let lastFocusableElement;
+        let previouslyFocusedElement;
+
+        // Initialize the application
+        function init() {
+            setupEventListeners();
+            updatePagination();
+        }
+
+        // Set up all event listeners
+        function setupEventListeners() {
+            // Modal controls
+            newAnnouncementBtn.addEventListener('click', openModal);
+            closeModalBtn.addEventListener('click', closeModal);
+            cancelBtn.addEventListener('click', closeModal);
+            
+            // Close modal on overlay click
+            modalOverlay.addEventListener('click', (e) => {
+                if (e.target === modalOverlay) {
+                    closeModal();
+                }
+            });
+
+            // Form submission
+            announcementForm.addEventListener('submit', handleFormSubmit);
+
+            // Keyboard navigation
+            document.addEventListener('keydown', handleKeydown);
+
+            // Pagination
+            prevBtn.addEventListener('click', () => changePage(currentPage - 1));
+            nextBtn.addEventListener('click', () => changePage(currentPage + 1));
+        }
+
+        // Open modal with accessibility features
+        function openModal() {
+            // Store previously focused element
+            previouslyFocusedElement = document.activeElement;
+            
+            // Show modal
+            modalOverlay.classList.add('active');
+            modalOverlay.setAttribute('aria-hidden', 'false');
+            
+            // Set up focus trap
+            setupFocusTrap();
+            
+            // Focus first input
+            setTimeout(() => {
+                document.getElementById('announcementTitle').focus();
+            }, 100);
+        }
+
+        // Close modal with accessibility features
+        function closeModal() {
+            // Hide modal
+            modalOverlay.classList.remove('active');
+            modalOverlay.setAttribute('aria-hidden', 'true');
+            
+            // Clear form
+            announcementForm.reset();
+            clearErrors();
+            
+            // Return focus to trigger element
+            if (previouslyFocusedElement) {
+                previouslyFocusedElement.focus();
+            }
+        }
+
+        // Set up focus trap for modal
+        function setupFocusTrap() {
+            const focusableElements = modal.querySelectorAll(
+                'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+            );
+            
+            firstFocusableElement = focusableElements[0];
+            lastFocusableElement = focusableElements[focusableElements.length - 1];
+            
+            // Trap focus within modal
+            modal.addEventListener('keydown', trapFocus);
+        }
+
+        // Trap focus within modal
+        function trapFocus(e) {
+            if (e.key === 'Tab') {
+                if (e.shiftKey) {
+                    if (document.activeElement === firstFocusableElement) {
+                        e.preventDefault();
+                        lastFocusableElement.focus();
+                    }
+                } else {
+                    if (document.activeElement === lastFocusableElement) {
+                        e.preventDefault();
+                        firstFocusableElement.focus();
+                    }
+                }
+            }
+        }
+
+        // Handle keyboard events
+        function handleKeydown(e) {
+            if (modalOverlay.classList.contains('active')) {
+                if (e.key === 'Escape') {
+                    closeModal();
+                }
+            }
+        }
+
+        // Handle form submission
+        function handleFormSubmit(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(announcementForm);
+            const title = formData.get('title').trim();
+            const body = formData.get('body').trim();
+            const pinned = formData.get('pinned') === 'on';
+            
+            // Clear previous errors
+            clearErrors();
+            
+            // Validate form
+            let isValid = true;
+            
+            if (!title) {
+                showError('title-error', 'Title is required');
+                isValid = false;
+            }
+            
+            if (!body) {
+                showError('body-error', 'Body is required');
+                isValid = false;
+            }
+            
+            if (!isValid) {
+                return;
+            }
+            
+            // Create new announcement
+            const newAnnouncement = {
+                id: Date.now(), // Simple ID generation
+                title: title,
+                body: body,
+                author: "You", // In real app, this would come from user session
+                timestamp: new Date(),
+                pinned: pinned
+            };
+            
+            // Add to beginning of announcements array
+            announcements.unshift(newAnnouncement);
+            
+            // Update display
+            renderAnnouncements();
+            updatePagination();
+            
+            // Close modal
+            closeModal();
+            
+            // TODO: Replace this client-side append with actual backend POST
+            // Example with Inertia.js:
+            // Inertia.post('/announcements', {
+            //     title: title,
+            //     body: body,
+            //     pinned: pinned
+            // }, {
+            //     onSuccess: () => {
+            //         // Refresh announcements list
+            //         // Close modal
+            //     }
+            // });
+            
+            // Example with Axios:
+            // axios.post('/api/announcements', {
+            //     title: title,
+            //     body: body,
+            //     pinned: pinned
+            // }).then(response => {
+            //     // Handle success
+            //     // Refresh announcements list
+            //     // Close modal
+            // }).catch(error => {
+            //     // Handle error
+            // });
+        }
+
+        // Show error message
+        function showError(elementId, message) {
+            const errorElement = document.getElementById(elementId);
+            errorElement.textContent = message;
+            errorElement.style.display = 'block';
+        }
+
+        // Clear all error messages
+        function clearErrors() {
+            const errorElements = document.querySelectorAll('.error-message');
+            errorElements.forEach(element => {
+                element.textContent = '';
+                element.style.display = 'none';
+            });
+        }
+
+        // Render announcements list
+        function renderAnnouncements() {
+            const startIndex = (currentPage - 1) * announcementsPerPage;
+            const endIndex = startIndex + announcementsPerPage;
+            const pageAnnouncements = announcements.slice(startIndex, endIndex);
+            
+            // Sort pinned announcements first
+            pageAnnouncements.sort((a, b) => {
+                if (a.pinned && !b.pinned) return -1;
+                if (!a.pinned && b.pinned) return 1;
+                return new Date(b.timestamp) - new Date(a.timestamp);
+            });
+            
+            announcementsList.innerHTML = pageAnnouncements.map(announcement => `
+                <article class="announcement-card ${announcement.pinned ? 'pinned' : ''}" role="article" aria-labelledby="announcement-${announcement.id}-title">
+                    <div class="announcement-header">
+                        <h2 class="announcement-title" id="announcement-${announcement.id}-title">${escapeHtml(announcement.title)}</h2>
+                        <div class="announcement-meta">
+                            ${announcement.pinned ? '<span class="pinned-badge">Pinned</span>' : ''}
+                            <time datetime="${announcement.timestamp.toISOString()}">${formatTimeAgo(announcement.timestamp)}</time>
+                        </div>
+                    </div>
+                    <div class="announcement-body">
+                        ${escapeHtml(announcement.body)}
+                    </div>
+                    <div class="announcement-author">By: ${escapeHtml(announcement.author)}</div>
+                </article>
+            `).join('');
+        }
+
+        // Update pagination controls
+        function updatePagination() {
+            const totalPages = Math.ceil(announcements.length / announcementsPerPage);
+            const paginationContainer = document.querySelector('.pagination');
+            
+            // Clear existing pagination buttons (except prev/next)
+            const existingButtons = paginationContainer.querySelectorAll('button:not(#prevBtn):not(#nextBtn)');
+            existingButtons.forEach(btn => btn.remove());
+            
+            // Update prev/next button states
+            prevBtn.disabled = currentPage === 1;
+            nextBtn.disabled = currentPage === totalPages || totalPages === 0;
+            
+            // Create page number buttons
+            for (let i = 1; i <= totalPages; i++) {
+                const pageBtn = document.createElement('button');
+                pageBtn.textContent = i;
+                pageBtn.setAttribute('aria-label', `Page ${i}`);
+                
+                if (i === currentPage) {
+                    pageBtn.classList.add('current-page');
+                    pageBtn.setAttribute('aria-current', 'page');
+                }
+                
+                pageBtn.addEventListener('click', () => changePage(i));
+                
+                // Insert before next button
+                paginationContainer.insertBefore(pageBtn, nextBtn);
+            }
+            
+            // Render announcements for current page
+            renderAnnouncements();
+        }
+
+        // Change page
+        function changePage(page) {
+            const totalPages = Math.ceil(announcements.length / announcementsPerPage);
+            
+            if (page >= 1 && page <= totalPages) {
+                currentPage = page;
+                updatePagination();
+            }
+        }
+
+        // Utility functions
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function formatTimeAgo(date) {
+            const now = new Date();
+            const diffInSeconds = Math.floor((now - date) / 1000);
+            
+            if (diffInSeconds < 60) {
+                return 'Just now';
+            } else if (diffInSeconds < 3600) {
+                const minutes = Math.floor(diffInSeconds / 60);
+                return `${minutes} minute${minutes !== 1 ? 's' : ''} ago`;
+            } else if (diffInSeconds < 86400) {
+                const hours = Math.floor(diffInSeconds / 3600);
+                return `${hours} hour${hours !== 1 ? 's' : ''} ago`;
+            } else {
+                const days = Math.floor(diffInSeconds / 86400);
+                return `${days} day${days !== 1 ? 's' : ''} ago`;
+            }
+        }
+
+        // Initialize the application when DOM is loaded
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
