@@ -30,16 +30,20 @@
     },
     "dependencies": {
         "@inertiajs/vue3": "^2.1.0",
+        "@supabase/supabase-js": "^2.58.0",
         "@vueuse/core": "^12.8.2",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
+        "html5-qrcode": "^2.3.8",
         "laravel-vite-plugin": "^2.0.0",
         "lucide-vue-next": "^0.468.0",
-        "reka-ui": "^2.5.0",
+        "qrcode": "^1.5.4",
+        "reka-ui": "^2.5.1",
         "tailwind-merge": "^3.2.0",
         "tailwindcss": "^4.1.1",
         "tw-animate-css": "^1.2.5",
-        "vue": "^3.5.13"
+        "vue": "^3.5.13",
+        "vue-qrcode-reader": "^5.7.3"
     },
     "optionalDependencies": {
         "@rollup/rollup-linux-x64-gnu": "4.9.5",
