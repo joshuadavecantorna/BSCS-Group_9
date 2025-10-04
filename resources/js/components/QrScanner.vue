@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, computed, nextTick } from 'vue';
+import { ref, watch, onMounted, computed } from 'vue';
 import { QrcodeStream } from 'vue-qrcode-reader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,383 +8,571 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { 
-  Camera, 
-  RotateCw, 
-  X, 
-  CheckCircle, 
-  AlertCircle, 
-  QrCode, 
-  Upload, 
-  Zap, 
-  SwitchCamera, 
-  Flashlight,
-  Scan,
-  User,
-  Shield
-} from 'lucide-vue-next';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Camera, RotateCw, X, CheckCircle, AlertCircle, QrCode, Upload, Zap, SwitchCamera, Flashlight, User, BookOpen, Calendar, Hash, GraduationCap } from 'lucide-vue-next';
 
 // Types
 interface Student {
   id: string;
   student_id: string;
   name: string;
-  year: string;
+  year: string; // 1st, 2nd, 3rd, 4th, 5th year
   course: string;
   section: string;
   avatar?: string | null;
-  raw_data?: string;
+  timestamp?: string;
 }
 
-interface ScannerState {
-  camera: 'auto' | 'front' | 'rear' | 'off';
-  torch: boolean;
-  error: string;
-  isLoading: boolean;
-  lastScannedStudent: Student | null;
-  cameraStatus: 'loading' | 'ready' | 'error' | 'unsupported' | 'denied';
-  debugInfo: string;
-  manualQrInput: string;
-  activeTab: 'camera' | 'manual';
-  scanHistory: Student[];
-  isPaused: boolean;
+interface ScanResult {
+  student: Student;
+  rawData: string;
+  format: 'json' | 'csv' | 'url' | 'keyvalue' | 'mock';
 }
 
 // Props
 const props = defineProps<{
   show: boolean;
-  autoCloseOnSuccess?: boolean;
-  maxScanHistory?: number;
 }>();
 
 // Emits
 const emit = defineEmits<{
   close: [];
   scanSuccess: [student: Student];
-  scanError: [error: string];
-  cameraStateChange: [state: string];
 }>();
 
 // Reactive state
-const state = ref<ScannerState>({
-  camera: 'off',
-  torch: false,
-  error: '',
-  isLoading: false,
-  lastScannedStudent: null,
-  cameraStatus: 'loading',
-  debugInfo: '',
-  manualQrInput: '',
-  activeTab: 'camera',
-  scanHistory: [],
-  isPaused: false
-});
+const camera = ref<'auto' | 'front' | 'rear' | 'off'>('off');
+const torch = ref(false);
+const error = ref<string>('');
+const isLoading = ref(false);
+const lastScannedStudent = ref<Student | null>(null);
+const cameraStatus = ref<'loading' | 'ready' | 'error' | 'unsupported'>('loading');
+const debugInfo = ref<string>('');
+const manualQrInput = ref<string>('');
+const activeTab = ref<'camera' | 'manual'>('camera');
+const scanHistory = ref<ScanResult[]>([]);
 
-// Computed properties
-const isSecureContext = computed(() => window.isSecureContext);
-const hasCameraSupport = computed(() => {
-  return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-});
-const canToggleTorch = computed(() => {
-  return state.value.cameraStatus === 'ready' && state.value.camera !== 'off';
-});
-const scanCount = computed(() => state.value.scanHistory.length);
-const recentScans = computed(() => state.value.scanHistory.slice(-3));
+// Manual form fields with validation
+const studentId = ref<string>('');
+const studentName = ref<string>('');
+const studentYear = ref<string>(''); // 1st, 2nd, 3rd, 4th, 5th
+const studentCourse = ref<string>('');
+const studentSection = ref<string>('');
+const formErrors = ref<Record<string, string>>({});
 
-// Debug info and initialization
-onMounted(() => {
-  state.value.debugInfo = `Secure: ${window.isSecureContext}, Protocol: ${window.location.protocol}, Host: ${window.location.hostname}, Camera API: ${hasCameraSupport.value}`;
-  console.log('QR Scanner Debug Info:', state.value.debugInfo);
-  
-  checkCameraCapabilities();
-});
+// Year level options
+const yearLevels = [
+  { value: '1st', label: '1st Year' },
+  { value: '2nd', label: '2nd Year' },
+  { value: '3rd', label: '3rd Year' },
+  { value: '4th', label: '4th Year' },
+  { value: '5th', label: '5th Year' }
+];
 
-// Enhanced camera capability check
-const checkCameraCapabilities = async () => {
-  if (!hasCameraSupport.value) {
-    state.value.cameraStatus = 'unsupported';
-    state.value.activeTab = 'manual';
-    state.value.error = 'Camera API not supported in this browser';
-    return;
-  }
-
-  if (!isSecureContext.value) {
-    state.value.cameraStatus = 'unsupported';
-    state.value.activeTab = 'manual';
-    state.value.error = 'Camera requires HTTPS. Using manual input mode.';
-    return;
-  }
-
-  // Test camera permissions
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-    stream.getTracks().forEach(track => track.stop());
-    state.value.cameraStatus = 'ready';
-  } catch (err: any) {
-    console.warn('Camera permission test failed:', err);
-    if (err.name === 'NotAllowedError') {
-      state.value.cameraStatus = 'denied';
-      state.value.error = 'Camera access denied. Please allow camera permissions in your browser settings.';
-    } else {
-      state.value.cameraStatus = 'error';
-      state.value.error = 'Camera initialization failed.';
-    }
+// Form validation rules
+const validationRules = {
+  student_id: (value: string) => {
+    if (!value.trim()) return 'Student ID is required';
+    if (value.length < 3) return 'Student ID must be at least 3 characters';
+    return '';
+  },
+  name: (value: string) => {
+    if (!value.trim()) return 'Name is required';
+    if (value.length < 2) return 'Name must be at least 2 characters';
+    if (!/^[a-zA-Z\s.'-]+$/.test(value)) return 'Name can only contain letters, spaces, and basic punctuation';
+    return '';
+  },
+  year: (value: string) => {
+    if (value && !/^(1st|2nd|3rd|4th|5th)$/.test(value)) return 'Please select a valid year level';
+    return '';
+  },
+  course: (value: string) => {
+    if (value && value.length > 50) return 'Course name is too long';
+    return '';
+  },
+  section: (value: string) => {
+    if (value && !/^[A-Za-z0-9]{1,5}$/.test(value)) return 'Section must be 1-5 alphanumeric characters';
+    return '';
   }
 };
 
-// Watch for show prop changes with debouncing
-let cameraTimeout: NodeJS.Timeout;
-watch(() => props.show, (newVal) => {
-  clearTimeout(cameraTimeout);
+// Validate form field
+const validateField = (field: string, value: string) => {
+  const validator = validationRules[field as keyof typeof validationRules];
+  if (validator) {
+    formErrors.value[field] = validator(value);
+  }
+};
+
+// Validate entire form
+const validateForm = (): boolean => {
+  const fields = {
+    student_id: studentId.value,
+    name: studentName.value,
+    year: studentYear.value,
+    course: studentCourse.value,
+    section: studentSection.value
+  };
+
+  Object.entries(fields).forEach(([field, value]) => {
+    validateField(field, value);
+  });
+
+  return !Object.values(formErrors.value).some(error => error);
+};
+
+// Check if we're in a secure context
+const isSecureContext = computed(() => window.isSecureContext);
+
+// Debug info
+onMounted(() => {
+  debugInfo.value = `Secure: ${window.isSecureContext}, Protocol: ${window.location.protocol}, Host: ${window.location.hostname}`;
+  console.log('Camera Debug Info:', debugInfo.value);
   
-  if (newVal && state.value.activeTab === 'camera' && isSecureContext.value) {
-    state.value.camera = 'auto';
-    state.value.error = '';
-    state.value.cameraStatus = 'loading';
-    
-    // Small delay to ensure DOM is ready
-    cameraTimeout = setTimeout(() => {
-      if (state.value.cameraStatus === 'loading') {
-        state.value.cameraStatus = 'ready';
-      }
-    }, 1000);
+  // Auto-switch to manual mode if not secure
+  if (!isSecureContext.value) {
+    activeTab.value = 'manual';
+    error.value = 'Camera requires HTTPS. Using manual input mode.';
+  }
+
+  // Load scan history from localStorage
+  const savedHistory = localStorage.getItem('qrScanHistory');
+  if (savedHistory) {
+    try {
+      scanHistory.value = JSON.parse(savedHistory).slice(0, 10); // Keep last 10 scans
+    } catch (e) {
+      console.error('Failed to load scan history:', e);
+    }
+  }
+});
+
+// Save scan to history
+const saveToHistory = (result: ScanResult) => {
+  scanHistory.value.unshift(result);
+  if (scanHistory.value.length > 10) {
+    scanHistory.value = scanHistory.value.slice(0, 10);
+  }
+  localStorage.setItem('qrScanHistory', JSON.stringify(scanHistory.value));
+};
+
+// Watch for show prop changes to control camera
+watch(() => props.show, (newVal) => {
+  if (newVal && activeTab.value === 'camera' && isSecureContext.value) {
+    camera.value = 'auto';
+    error.value = '';
+    cameraStatus.value = 'loading';
   } else {
-    state.value.camera = 'off';
+    camera.value = 'off';
   }
 }, { immediate: true });
 
-// Camera event handlers
+// Camera initialized successfully
 const onCameraOn = () => {
   console.log('Camera initialized successfully');
-  state.value.cameraStatus = 'ready';
-  state.value.error = '';
-  emit('cameraStateChange', 'ready');
+  cameraStatus.value = 'ready';
+  error.value = '';
 };
 
+// Camera initialization failed
 const onCameraOff = () => {
   console.log('Camera turned off');
-  state.value.cameraStatus = 'loading';
-  emit('cameraStateChange', 'off');
+  cameraStatus.value = 'loading';
 };
 
-// Enhanced error handling
+// Camera error handling
 const onError = (err: any) => {
   console.error('Camera error details:', err);
+  cameraStatus.value = 'error';
   
   if (err?.name === 'NotAllowedError') {
-    state.value.cameraStatus = 'denied';
-    state.value.error = 'Camera access denied. Please allow camera permissions in your browser settings.';
+    error.value = 'Camera access denied. Please allow camera permissions.';
   } else if (err?.name === 'NotFoundError') {
-    state.value.cameraStatus = 'error';
-    state.value.error = 'No camera found on this device.';
+    error.value = 'No camera found on this device.';
   } else if (err?.name === 'NotSupportedError' || err?.message?.includes('secure context')) {
-    state.value.cameraStatus = 'unsupported';
-    state.value.error = 'Camera not supported. Switch to manual mode.';
-    state.value.activeTab = 'manual';
-  } else if (err?.name === 'OverconstrainedError') {
-    state.value.cameraStatus = 'error';
-    state.value.error = 'Camera constraints could not be satisfied. Try switching cameras.';
+    error.value = 'Camera not supported in HTTP context. Switch to manual mode.';
+    cameraStatus.value = 'unsupported';
   } else {
-    state.value.cameraStatus = 'error';
-    state.value.error = `Camera error: ${err?.message || 'Unknown error'}`;
+    error.value = `Camera error: ${err?.message || 'Unknown error'}`;
   }
-  
-  emit('cameraStateChange', 'error');
-  emit('scanError', state.value.error);
 };
 
-// Debounced scan detection
-let scanCooldown = false;
-const SCAN_COOLDOWN_MS = 1000;
-
+// Improved QR code detection with better parsing
 const onDetect = async (detectedCodes: any[]) => {
-  if (state.value.isLoading || !detectedCodes.length || scanCooldown || state.value.isPaused) return;
-  
-  scanCooldown = true;
-  setTimeout(() => { scanCooldown = false; }, SCAN_COOLDOWN_MS);
+  if (isLoading.value || !detectedCodes.length) return;
 
   const detectedCode = detectedCodes[0];
   const rawValue = detectedCode?.rawValue;
 
   try {
-    state.value.isLoading = true;
-    state.value.error = '';
+    isLoading.value = true;
+    error.value = '';
+    formErrors.value = {};
 
-    // Pause camera during processing
-    state.value.isPaused = true;
+    let studentData: Student;
+    let format: ScanResult['format'] = 'json';
 
-    const studentData = await processQrData(rawValue);
-    
-    // Add to scan history
-    addToScanHistory(studentData);
-    
-    state.value.lastScannedStudent = studentData;
-    emit('scanSuccess', studentData);
-    
-    if (props.autoCloseOnSuccess) {
-      setTimeout(() => closeScanner(), 1500);
+    if (rawValue) {
+      try {
+        // Try to parse as JSON first
+        studentData = JSON.parse(rawValue);
+        console.log('QR Code parsed successfully (JSON):', studentData);
+        format = 'json';
+      } catch (parseErr) {
+        console.log('QR is not JSON, trying alternative formats:', parseErr);
+        
+        // Try to extract data from other formats
+        const parsed = parseQRData(rawValue);
+        if (parsed) {
+          studentData = parsed.student;
+          format = parsed.format;
+        } else {
+          error.value = 'QR code format not recognized. Please use manual input.';
+          return;
+        }
+      }
+    } else {
+      studentData = generateMockStudent();
+      format = 'mock';
     }
+
+    // Validate student data
+    const validationError = validateStudentData(studentData);
+    if (validationError) {
+      error.value = validationError;
+      return;
+    }
+
+    // Normalize year format
+    if (studentData.year) {
+      studentData.year = normalizeYearLevel(studentData.year);
+    }
+
+    // Add timestamp and ensure all fields
+    studentData = {
+      ...studentData,
+      id: studentData.id || `scan-${Date.now()}`,
+      timestamp: new Date().toISOString()
+    };
+
+    await new Promise(resolve => setTimeout(resolve, 800));
     
+    const scanResult: ScanResult = {
+      student: studentData,
+      rawData: rawValue || 'mock',
+      format
+    };
+
+    lastScannedStudent.value = studentData;
+    saveToHistory(scanResult);
+    emit('scanSuccess', studentData);
+    error.value = '';
+
   } catch (err) {
     console.error('QR Scan error:', err);
-    state.value.error = 'Failed to process QR code';
-    emit('scanError', state.value.error);
+    error.value = 'Scan processing error';
   } finally {
-    state.value.isLoading = false;
-    // Resume camera after a brief delay
-    setTimeout(() => { state.value.isPaused = false; }, 500);
+    isLoading.value = false;
   }
 };
 
-// Process QR data with validation
-const processQrData = async (rawValue: string): Promise<Student> => {
-  if (!rawValue) {
-    return generateMockStudent();
-  }
+// Normalize year level to standard format
+const normalizeYearLevel = (year: string): string => {
+  const yearLower = year.toLowerCase().trim();
+  
+  const yearMappings: Record<string, string> = {
+    '1': '1st', 'first': '1st', '1st year': '1st', '1st-year': '1st', 'year1': '1st', 'year 1': '1st',
+    '2': '2nd', 'second': '2nd', '2nd year': '2nd', '2nd-year': '2nd', 'year2': '2nd', 'year 2': '2nd',
+    '3': '3rd', 'third': '3rd', '3rd year': '3rd', '3rd-year': '3rd', 'year3': '3rd', 'year 3': '3rd',
+    '4': '4th', 'fourth': '4th', '4th year': '4th', '4th-year': '4th', 'year4': '4th', 'year 4': '4th',
+    '5': '5th', 'fifth': '5th', '5th year': '5th', '5th-year': '5th', 'year5': '5th', 'year 5': '5th'
+  };
 
+  return yearMappings[yearLower] || year;
+};
+
+// Validate student data structure
+const validateStudentData = (data: any): string | null => {
+  if (!data.student_id || typeof data.student_id !== 'string') {
+    return 'Invalid or missing student ID';
+  }
+  if (!data.name || typeof data.name !== 'string') {
+    return 'Invalid or missing student name';
+  }
+  if (data.year && typeof data.year !== 'string') {
+    return 'Invalid year format';
+  }
+  if (data.course && typeof data.course !== 'string') {
+    return 'Invalid course format';
+  }
+  if (data.section && typeof data.section !== 'string') {
+    return 'Invalid section format';
+  }
+  
+  // Validate year level if provided
+  if (data.year && !/^(1st|2nd|3rd|4th|5th)$/.test(normalizeYearLevel(data.year))) {
+    return 'Invalid year level. Must be 1st, 2nd, 3rd, 4th, or 5th year';
+  }
+  
+  return null;
+};
+
+// Parse QR data from various formats
+const parseQRData = (rawData: string): { student: Student; format: ScanResult['format'] } | null => {
+  const trimmedData = rawData.trim();
+
+  // Try CSV format: id,name,year,course,section
+  const csvMatch = trimmedData.match(/^([^,]+),([^,]+),([^,]*),([^,]*),([^,]*)$/);
+  if (csvMatch) {
+    return {
+      student: {
+        id: `csv-${Date.now()}`,
+        student_id: csvMatch[1].trim(),
+        name: csvMatch[2].trim(),
+        year: normalizeYearLevel(csvMatch[3].trim()) || '',
+        course: csvMatch[4].trim() || '',
+        section: csvMatch[5].trim() || '',
+        timestamp: new Date().toISOString()
+      },
+      format: 'csv'
+    };
+  }
+  
+  // Try URL format with query parameters
   try {
-    const studentData = JSON.parse(rawValue);
+    const url = new URL(trimmedData);
+    const params = new URLSearchParams(url.search);
     
-    // Validate student data structure
-    if (!isValidStudentData(studentData)) {
-      throw new Error('Invalid student data structure');
+    if (params.get('student_id') || params.get('name')) {
+      return {
+        student: {
+          id: `url-${Date.now()}`,
+          student_id: params.get('student_id') || '',
+          name: params.get('name') || '',
+          year: normalizeYearLevel(params.get('year') || ''),
+          course: params.get('course') || '',
+          section: params.get('section') || '',
+          timestamp: new Date().toISOString()
+        },
+        format: 'url'
+      };
     }
-    
-    console.log('QR Code parsed successfully:', studentData);
-    return studentData;
-  } catch (parseErr) {
-    console.error('QR parse error:', parseErr);
-    
-    // Try to extract basic info from raw string
-    const fallbackStudent = generateMockStudent();
-    fallbackStudent.raw_data = rawValue;
-    fallbackStudent.name = `Scanned: ${rawValue.substring(0, 20)}...`;
-    
-    return fallbackStudent;
+  } catch (e) {
+    // Not a URL, continue to next format
   }
+  
+  // Try key-value pairs separated by semicolons or pipes
+  const keyValueRegex = /(\w+)[:=]\s*([^;|]+)/g;
+  const keyValuePairs: Record<string, string> = {};
+  let match;
+  
+  while ((match = keyValueRegex.exec(trimmedData)) !== null) {
+    const [, key, value] = match;
+    keyValuePairs[key.toLowerCase()] = value.trim();
+  }
+  
+  if (keyValuePairs.student_id || keyValuePairs.name) {
+    return {
+      student: {
+        id: `kv-${Date.now()}`,
+        student_id: keyValuePairs.student_id || keyValuePairs.id || '',
+        name: keyValuePairs.name || keyValuePairs.student_name || '',
+        year: normalizeYearLevel(keyValuePairs.year || keyValuePairs.yr || keyValuePairs.year_level || ''),
+        course: keyValuePairs.course || keyValuePairs.program || '',
+        section: keyValuePairs.section || keyValuePairs.sec || '',
+        timestamp: new Date().toISOString()
+      },
+      format: 'keyvalue'
+    };
+  }
+  
+  return null;
 };
 
-// Student data validation
-const isValidStudentData = (data: any): data is Student => {
-  return (
-    data &&
-    typeof data.student_id === 'string' &&
-    typeof data.name === 'string' &&
-    typeof data.course === 'string'
-  );
+const generateMockStudent = (): Student => {
+  const years = ['1st', '2nd', '3rd', '4th', '5th'];
+  const courses = ['BSCS', 'BSIT', 'BSEE', 'BSME', 'BSBA'];
+  
+  return {
+    id: 'dev-' + Date.now(),
+    student_id: 'STU-' + Math.random().toString(36).substr(2, 9).toUpperCase(),
+    name: 'Demo Student ' + Math.floor(Math.random() * 100),
+    year: years[Math.floor(Math.random() * years.length)],
+    course: courses[Math.floor(Math.random() * courses.length)],
+    section: String.fromCharCode(65 + Math.floor(Math.random() * 3)),
+    timestamp: new Date().toISOString()
+  };
 };
 
-// Scan history management
-const addToScanHistory = (student: Student) => {
-  state.value.scanHistory = [
-    ...state.value.scanHistory,
-    { ...student, id: `${student.id}-${Date.now()}` }
-  ].slice(-(props.maxScanHistory || 10));
-};
-
-const generateMockStudent = (): Student => ({
-  id: 'dev-' + Date.now(),
-  student_id: 'STU-' + Math.random().toString(36).substr(2, 9).toUpperCase(),
-  name: 'Demo Student ' + Math.floor(Math.random() * 100),
-  year: '2024',
-  course: 'BSCS',
-  section: String.fromCharCode(65 + Math.floor(Math.random() * 3)),
-  avatar: null
-});
-
-// Manual QR processing with validation
+// Manual QR processing
 const processManualInput = async () => {
-  if (!state.value.manualQrInput.trim()) {
-    state.value.error = 'Please enter QR code data';
+  if (!manualQrInput.value.trim()) {
+    error.value = 'Please enter QR code data';
     return;
   }
 
   try {
-    state.value.isLoading = true;
-    state.value.error = '';
+    isLoading.value = true;
+    error.value = '';
+    formErrors.value = {};
 
-    const studentData = await processQrData(state.value.manualQrInput);
-    
-    addToScanHistory(studentData);
-    state.value.lastScannedStudent = studentData;
-    emit('scanSuccess', studentData);
-    
-    state.value.manualQrInput = '';
-    state.value.error = '';
+    let studentData: Student;
+    let format: ScanResult['format'] = 'json';
 
-    if (props.autoCloseOnSuccess) {
-      setTimeout(() => closeScanner(), 1500);
+    try {
+      studentData = JSON.parse(manualQrInput.value);
+      console.log('Manual QR Code parsed successfully:', studentData);
+    } catch (parseErr) {
+      error.value = 'Invalid JSON format. Please check your QR code data.';
+      return;
     }
+
+    // Validate the parsed data
+    const validationError = validateStudentData(studentData);
+    if (validationError) {
+      error.value = validationError;
+      return;
+    }
+
+    // Normalize year format
+    if (studentData.year) {
+      studentData.year = normalizeYearLevel(studentData.year);
+    }
+
+    studentData = {
+      ...studentData,
+      id: studentData.id || `manual-json-${Date.now()}`,
+      timestamp: new Date().toISOString()
+    };
+
+    await new Promise(resolve => setTimeout(resolve, 800));
     
+    const scanResult: ScanResult = {
+      student: studentData,
+      rawData: manualQrInput.value,
+      format
+    };
+
+    lastScannedStudent.value = studentData;
+    saveToHistory(scanResult);
+    emit('scanSuccess', studentData);
+    manualQrInput.value = '';
+    error.value = '';
+
   } catch (err) {
     console.error('Manual scan error:', err);
-    state.value.error = 'Failed to process QR code data';
-    emit('scanError', state.value.error);
+    error.value = 'Processing error';
   } finally {
-    state.value.isLoading = false;
+    isLoading.value = false;
+  }
+};
+
+// Process manual form submission
+const processManualForm = async () => {
+  if (!validateForm()) {
+    error.value = 'Please fix the form errors before submitting';
+    return;
+  }
+
+  try {
+    isLoading.value = true;
+    error.value = '';
+
+    const studentData: Student = {
+      id: 'manual-form-' + Date.now(),
+      student_id: studentId.value.trim(),
+      name: studentName.value.trim(),
+      year: studentYear.value,
+      course: studentCourse.value.trim(),
+      section: studentSection.value.trim(),
+      timestamp: new Date().toISOString()
+    };
+
+    await new Promise(resolve => setTimeout(resolve, 800));
+    
+    const scanResult: ScanResult = {
+      student: studentData,
+      rawData: 'manual_form',
+      format: 'json'
+    };
+
+    lastScannedStudent.value = studentData;
+    saveToHistory(scanResult);
+    emit('scanSuccess', studentData);
+    
+    // Clear form
+    studentId.value = '';
+    studentName.value = '';
+    studentYear.value = '';
+    studentCourse.value = '';
+    studentSection.value = '';
+    formErrors.value = {};
+    
+    error.value = '';
+
+  } catch (err) {
+    console.error('Manual form error:', err);
+    error.value = 'Processing error';
+  } finally {
+    isLoading.value = false;
   }
 };
 
 // Quick test scan
 const quickTestScan = () => {
   const studentData = generateMockStudent();
-  addToScanHistory(studentData);
-  state.value.lastScannedStudent = studentData;
+  const scanResult: ScanResult = {
+    student: studentData,
+    rawData: 'quick_test',
+    format: 'mock'
+  };
+  lastScannedStudent.value = studentData;
+  saveToHistory(scanResult);
   emit('scanSuccess', studentData);
 };
 
-// Camera controls
+// Camera switch
 const switchCamera = () => {
-  if (state.value.camera === 'auto' || state.value.camera === 'front') {
-    state.value.camera = 'rear';
+  if (camera.value === 'auto' || camera.value === 'front') {
+    camera.value = 'rear';
   } else {
-    state.value.camera = 'front';
+    camera.value = 'front';
   }
 };
 
+// Torch toggle
 const toggleTorch = () => {
-  if (canToggleTorch.value) {
-    state.value.torch = !state.value.torch;
-  }
+  torch.value = !torch.value;
 };
 
-// Scanner controls
-const pauseScanner = () => {
-  state.value.isPaused = true;
-};
-
-const resumeScanner = () => {
-  state.value.isPaused = false;
-};
-
-// Close scanner with cleanup
+// Close scanner
 const closeScanner = () => {
-  state.value.camera = 'off';
-  state.value.isPaused = false;
+  camera.value = 'off';
   emit('close');
 };
 
-// Tab switching
+// Switch tabs
 const switchToCamera = () => {
-  if (!isSecureContext.value || !hasCameraSupport.value) {
-    state.value.error = 'Camera not available. Please use manual mode.';
+  if (!isSecureContext.value) {
+    error.value = 'Camera requires HTTPS. Please use manual mode or enable HTTPS.';
     return;
   }
-  state.value.activeTab = 'camera';
-  state.value.camera = 'auto';
-  state.value.error = '';
+  activeTab.value = 'camera';
+  camera.value = 'auto';
+  error.value = '';
+  formErrors.value = {};
 };
 
 const switchToManual = () => {
-  state.value.activeTab = 'manual';
-  state.value.camera = 'off';
-  state.value.error = '';
+  activeTab.value = 'manual';
+  camera.value = 'off';
+  error.value = '';
 };
 
-// Utility functions
+// Get camera label
 const getCameraLabel = () => {
-  switch (state.value.camera) {
+  switch (camera.value) {
     case 'front': return 'Front Camera';
     case 'rear': return 'Rear Camera';
     case 'off': return 'Camera Off';
@@ -392,48 +580,56 @@ const getCameraLabel = () => {
   }
 };
 
+// Get initials for avatar
 const getInitials = (name: string) => {
   return name.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
 };
 
-const clearError = () => {
-  state.value.error = '';
+// Format timestamp
+const formatTime = (timestamp: string) => {
+  return new Date(timestamp).toLocaleTimeString();
 };
 
-const clearScanHistory = () => {
-  state.value.scanHistory = [];
+// Get year level badge color
+const getYearBadgeVariant = (year: string) => {
+  const variants: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
+    '1st': 'default',
+    '2nd': 'secondary',
+    '3rd': 'outline',
+    '4th': 'default',
+    '5th': 'secondary'
+  };
+  return variants[year] || 'outline';
 };
 </script>
 
 <template>
-  <div v-if="show" class="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm">
-    <div class="flex flex-col h-full">
-      <!-- Enhanced Header -->
-      <div class="flex-shrink-0 border-b bg-card/50 backdrop-blur">
-        <div class="container mx-auto px-4 py-4">
+  <div v-if="show" class="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-background border rounded-xl shadow-xl w-full max-w-6xl h-[95vh] flex flex-col overflow-hidden">
+      <!-- Header -->
+      <div class="flex-shrink-0 border-b bg-gradient-to-r from-background to-muted/20">
+        <div class="px-6 py-4">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-3">
               <div class="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
-                <Scan class="h-6 w-6 text-primary-foreground" />
+                <QrCode class="h-6 w-6 text-primary-foreground" />
               </div>
               <div>
-                <h2 class="text-2xl font-bold tracking-tight flex items-center gap-2">
-                  QR Scanner
-                  <Badge variant="secondary" class="text-xs">
-                    {{ scanCount }} scans
-                  </Badge>
-                </h2>
+                <h2 class="text-2xl font-bold tracking-tight">Student QR Scanner</h2>
                 <p class="text-sm text-muted-foreground">
                   Scan student ID cards to mark attendance
                 </p>
               </div>
             </div>
             <div class="flex items-center gap-2">
-              <Button variant="outline" size="sm" @click="quickTestScan" :disabled="state.isLoading">
+              <Badge variant="secondary" class="text-xs">
+                {{ scanHistory.length }} scans
+              </Badge>
+              <Button variant="outline" size="sm" @click="quickTestScan">
                 <Zap class="h-4 w-4 mr-2" />
                 Test Scan
               </Button>
-              <Button variant="ghost" size="icon" @click="closeScanner" :disabled="state.isLoading">
+              <Button variant="ghost" size="icon" @click="closeScanner">
                 <X class="h-5 w-5" />
               </Button>
             </div>
@@ -443,394 +639,554 @@ const clearScanHistory = () => {
 
       <!-- Main Content -->
       <div class="flex-1 overflow-hidden">
-        <Tabs :value="state.activeTab" class="h-full flex flex-col">
-          <!-- Enhanced Tab Header -->
-          <div class="flex-shrink-0 border-b bg-muted/20">
-            <div class="container mx-auto px-4">
-              <div class="flex items-center justify-between py-3">
-                <TabsList class="grid grid-cols-2 bg-transparent h-auto p-0 gap-1">
-                  <TabsTrigger 
-                    value="camera" 
-                    @click="switchToCamera"
-                    class="rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm"
-                    :disabled="!isSecureContext || !hasCameraSupport"
-                  >
-                    <Camera class="h-4 w-4 mr-2" />
-                    Camera Scan
-                    <Shield v-if="!isSecureContext" class="h-3 w-3 ml-1 text-yellow-500" />
-                  </TabsTrigger>
-                  <TabsTrigger 
-                    value="manual" 
-                    @click="switchToManual"
-                    class="rounded-lg data-[state=active]:bg-background data-[state=active]:shadow-sm"
-                  >
-                    <Upload class="h-4 w-4 mr-2" />
-                    Manual Input
-                  </TabsTrigger>
-                </TabsList>
-                
-                <!-- Scanner Status -->
-                <div class="flex items-center gap-2 text-sm">
-                  <div v-if="state.activeTab === 'camera'" class="flex items-center gap-2">
-                    <div class="flex items-center gap-1">
-                      <div 
-                        :class="[
-                          'w-2 h-2 rounded-full',
-                          state.cameraStatus === 'ready' ? 'bg-green-500' :
-                          state.cameraStatus === 'loading' ? 'bg-yellow-500' :
-                          'bg-red-500'
-                        ]" 
-                      />
-                      <span class="text-xs text-muted-foreground capitalize">
-                        {{ state.cameraStatus }}
-                      </span>
-                    </div>
-                    <Badge v-if="state.isPaused" variant="outline" class="text-xs">
-                      Paused
-                    </Badge>
-                  </div>
-                </div>
-              </div>
+        <Tabs :value="activeTab" class="h-full flex flex-col">
+          <div class="flex-shrink-0 border-b bg-muted/30">
+            <div class="px-6">
+              <TabsList class="w-full grid grid-cols-2 bg-transparent h-auto p-0">
+                <TabsTrigger 
+                  value="camera" 
+                  @click="switchToCamera"
+                  class="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent py-3"
+                >
+                  <Camera class="h-4 w-4 mr-2" />
+                  Camera Scan
+                  <Badge v-if="!isSecureContext" variant="destructive" class="ml-2 h-4 px-1 text-xs">
+                    HTTPS
+                  </Badge>
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="manual" 
+                  @click="switchToManual"
+                  class="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent py-3"
+                >
+                  <User class="h-4 w-4 mr-2" />
+                  Manual Entry
+                </TabsTrigger>
+              </TabsList>
             </div>
           </div>
 
           <!-- Camera Tab Content -->
-          <TabsContent value="camera" class="flex-1 m-0 relative bg-black data-[state=inactive]:hidden">
-            <!-- QR Scanner Stream -->
-            <QrcodeStream
-              v-if="state.camera !== 'off' && isSecureContext && hasCameraSupport"
-              :camera="state.camera"
-              :torch="state.torch"
-              :paused="state.isPaused"
-              @detect="onDetect"
-              @error="onError"
-              @camera-on="onCameraOn"
-              @camera-off="onCameraOff"
-              class="absolute inset-0 w-full h-full"
-            >
-              <!-- Enhanced Scanning Overlay -->
-              <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div class="relative">
-                  <!-- Scanner Frame with Improved Design -->
-                  <div class="w-80 h-80 relative">
-                    <!-- Animated Corner Brackets -->
-                    <div class="absolute -top-1 -left-1 w-16 h-16">
-                      <div class="w-6 h-6 border-t-2 border-l-2 border-primary rounded-tl-lg animate-pulse"></div>
+          <TabsContent value="camera" class="flex-1 m-0 p-6 overflow-auto data-[state=inactive]:hidden">
+            <div class="grid grid-cols-1 xl:grid-cols-3 gap-6 h-full">
+              <!-- Camera Container -->
+              <div class="xl:col-span-2 flex flex-col">
+                <div class="bg-black rounded-xl overflow-hidden relative flex-1 flex items-center justify-center min-h-[400px]">
+                  <QrcodeStream
+                    v-if="camera !== 'off' && isSecureContext"
+                    :camera="camera"
+                    :torch="torch"
+                    @detect="onDetect"
+                    @error="onError"
+                    @camera-on="onCameraOn"
+                    @camera-off="onCameraOff"
+                    class="w-full h-full object-contain"
+                  >
+                    <!-- Scanning Frame Overlay -->
+                    <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div class="relative">
+                        <!-- Scanner Frame -->
+                        <div class="w-64 h-64 relative">
+                          <!-- Corner Brackets -->
+                          <div class="absolute -top-2 -left-2 w-12 h-12 border-t-4 border-l-4 border-primary rounded-tl-lg"></div>
+                          <div class="absolute -top-2 -right-2 w-12 h-12 border-t-4 border-r-4 border-primary rounded-tr-lg"></div>
+                          <div class="absolute -bottom-2 -left-2 w-12 h-12 border-b-4 border-l-4 border-primary rounded-bl-lg"></div>
+                          <div class="absolute -bottom-2 -right-2 w-12 h-12 border-b-4 border-r-4 border-primary rounded-br-lg"></div>
+                          
+                          <!-- Scanning Line -->
+                          <div class="absolute top-0 left-0 right-0 h-1 bg-primary shadow-[0_0_20px_rgba(var(--primary),0.8)] animate-scan"></div>
+                        </div>
+                      </div>
                     </div>
-                    <div class="absolute -top-1 -right-1 w-16 h-16">
-                      <div class="w-6 h-6 border-t-2 border-r-2 border-primary rounded-tr-lg animate-pulse"></div>
-                    </div>
-                    <div class="absolute -bottom-1 -left-1 w-16 h-16">
-                      <div class="w-6 h-6 border-b-2 border-l-2 border-primary rounded-bl-lg animate-pulse"></div>
-                    </div>
-                    <div class="absolute -bottom-1 -right-1 w-16 h-16">
-                      <div class="w-6 h-6 border-b-2 border-r-2 border-primary rounded-br-lg animate-pulse"></div>
-                    </div>
-                    
-                    <!-- Enhanced Scanning Line -->
-                    <div class="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-primary to-transparent shadow-lg animate-scan"></div>
+                  </QrcodeStream>
+
+                  <!-- Camera States -->
+                  <div v-if="cameraStatus !== 'ready'" class="absolute inset-0 flex items-center justify-center bg-muted/50">
+                    <Card class="max-w-sm w-full mx-4">
+                      <CardContent class="p-6 text-center">
+                        <div v-if="cameraStatus === 'loading'" class="space-y-4">
+                          <RotateCw class="h-12 w-12 animate-spin mx-auto text-primary" />
+                          <div>
+                            <p class="font-semibold text-lg">Initializing Camera</p>
+                            <p class="text-sm text-muted-foreground">Please wait...</p>
+                          </div>
+                        </div>
+                        
+                        <div v-else-if="cameraStatus === 'unsupported'" class="space-y-4">
+                          <AlertCircle class="h-12 w-12 mx-auto text-yellow-500" />
+                          <div>
+                            <p class="font-semibold text-lg">Camera Not Available</p>
+                            <p class="text-sm text-muted-foreground mt-2">
+                              Camera requires HTTPS connection for security.
+                            </p>
+                          </div>
+                          <Button @click="switchToManual" class="w-full">
+                            <User class="h-4 w-4 mr-2" />
+                            Switch to Manual Mode
+                          </Button>
+                        </div>
+                        
+                        <div v-else-if="cameraStatus === 'error'" class="space-y-4">
+                          <AlertCircle class="h-12 w-12 mx-auto text-destructive" />
+                          <div>
+                            <p class="font-semibold text-lg">Camera Error</p>
+                            <p class="text-sm text-muted-foreground mt-2">{{ error }}</p>
+                          </div>
+                          <div class="flex gap-2">
+                            <Button @click="camera = 'auto'" variant="outline" class="flex-1">
+                              <RotateCw class="h-4 w-4 mr-2" />
+                              Retry
+                            </Button>
+                            <Button @click="switchToManual" class="flex-1">
+                              Manual Mode
+                            </Button>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
                   </div>
-                  
-                  <!-- Instructions -->
-                  <div class="text-center mt-8">
-                    <Card class="bg-background/95 backdrop-blur border-primary/20 shadow-lg">
-                      <CardContent class="p-4">
-                        <p class="text-sm font-medium mb-1 flex items-center justify-center gap-2">
-                          <Scan class="h-4 w-4 text-primary" />
-                          Position QR code within frame
-                        </p>
-                        <p class="text-xs text-muted-foreground">Scanner will automatically detect the code</p>
+
+                  <!-- Camera Controls -->
+                  <div v-if="cameraStatus === 'ready'" class="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex gap-3">
+                    <Button 
+                      variant="secondary" 
+                      size="lg" 
+                      @click="switchCamera" 
+                      :title="getCameraLabel()"
+                      class="rounded-full shadow-xl backdrop-blur-sm bg-background/80"
+                    >
+                      <SwitchCamera class="h-5 w-5 mr-2" />
+                      Switch
+                    </Button>
+                    <Button 
+                      :variant="torch ? 'default' : 'secondary'"
+                      size="lg" 
+                      @click="toggleTorch" 
+                      title="Toggle flashlight"
+                      class="rounded-full shadow-xl backdrop-blur-sm bg-background/80"
+                    >
+                      <Flashlight class="h-5 w-5 mr-2" :fill="torch ? 'currentColor' : 'none'" />
+                      Flash
+                    </Button>
+                  </div>
+                </div>
+                
+                <!-- Instructions -->
+                <div class="mt-4">
+                  <Card class="bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200 dark:from-blue-950/20 dark:to-indigo-950/20">
+                    <CardContent class="p-4">
+                      <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 bg-blue-100 dark:bg-blue-800 rounded-full flex items-center justify-center">
+                          <QrCode class="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                        </div>
+                        <div>
+                          <p class="text-sm font-medium text-blue-900 dark:text-blue-100">How to scan</p>
+                          <p class="text-xs text-blue-700 dark:text-blue-300">Position the student's QR code within the frame. Ensure good lighting.</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </div>
+              
+              <!-- Results Sidebar -->
+              <div class="xl:col-span-1 space-y-6">
+                <!-- Last Scanned Student -->
+                <div v-if="lastScannedStudent" class="animate-fade-in">
+                  <div class="flex items-center gap-2 mb-3">
+                    <CheckCircle class="h-4 w-4 text-green-500" />
+                    <p class="text-sm font-medium text-muted-foreground">Last Scanned</p>
+                    <Badge variant="outline" class="ml-auto text-xs">
+                      {{ formatTime(lastScannedStudent.timestamp!) }}
+                    </Badge>
+                  </div>
+                  <Card class="border-green-200 bg-green-50/50 dark:bg-green-950/20 dark:border-green-800">
+                    <CardContent class="p-4">
+                      <div class="flex items-start gap-3">
+                        <Avatar class="h-12 w-12 border-2 border-green-500 shrink-0">
+                          <AvatarFallback class="bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 font-semibold">
+                            {{ getInitials(lastScannedStudent.name) }}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div class="flex-1 min-w-0 space-y-2">
+                          <div class="flex items-start gap-2">
+                            <p class="font-semibold text-sm leading-tight truncate">{{ lastScannedStudent.name }}</p>
+                            <Badge variant="default" class="bg-green-500 hover:bg-green-500 shrink-0">
+                              Present
+                            </Badge>
+                          </div>
+                          
+                          <div class="space-y-1 text-xs">
+                            <div class="flex items-center gap-2">
+                              <Hash class="h-3 w-3 text-muted-foreground" />
+                              <span class="text-muted-foreground">ID:</span>
+                              <span class="font-mono">{{ lastScannedStudent.student_id }}</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                              <BookOpen class="h-3 w-3 text-muted-foreground" />
+                              <span class="text-muted-foreground">Course:</span>
+                              <span>{{ lastScannedStudent.course || 'N/A' }}</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                              <GraduationCap class="h-3 w-3 text-muted-foreground" />
+                              <span class="text-muted-foreground">Year:</span>
+                              <Badge :variant="getYearBadgeVariant(lastScannedStudent.year)" class="text-xs">
+                                {{ lastScannedStudent.year || 'N/A' }}
+                              </Badge>
+                            </div>
+                            <div class="flex items-center gap-2">
+                              <Calendar class="h-3 w-3 text-muted-foreground" />
+                              <span class="text-muted-foreground">Section:</span>
+                              <span>{{ lastScannedStudent.section || 'N/A' }}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <!-- Scan History -->
+                <div v-if="scanHistory.length > 0" class="flex-1">
+                  <div class="flex items-center gap-2 mb-3">
+                    <Calendar class="h-4 w-4 text-muted-foreground" />
+                    <p class="text-sm font-medium text-muted-foreground">Recent Scans</p>
+                    <Badge variant="outline" class="ml-auto text-xs">
+                      {{ scanHistory.length }}
+                    </Badge>
+                  </div>
+                  <div class="space-y-2 max-h-64 overflow-y-auto">
+                    <Card v-for="(scan, index) in scanHistory.slice(0, 5)" :key="scan.student.id" 
+                          class="group hover:border-primary/50 transition-colors">
+                      <CardContent class="p-3">
+                        <div class="flex items-center gap-2">
+                          <Avatar class="h-8 w-8">
+                            <AvatarFallback class="text-xs">
+                              {{ getInitials(scan.student.name) }}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div class="flex-1 min-w-0">
+                            <p class="text-sm font-medium truncate">{{ scan.student.name }}</p>
+                            <div class="flex items-center gap-2 mt-1">
+                              <Badge :variant="getYearBadgeVariant(scan.student.year)" class="text-xs" v-if="scan.student.year">
+                                {{ scan.student.year }}
+                              </Badge>
+                              <span class="text-xs text-muted-foreground truncate">
+                                {{ scan.student.student_id }}
+                              </span>
+                            </div>
+                          </div>
+                          <Badge variant="outline" class="text-xs shrink-0">
+                            {{ formatTime(scan.student.timestamp!) }}
+                          </Badge>
+                        </div>
                       </CardContent>
                     </Card>
                   </div>
                 </div>
+
+                <!-- Empty State -->
+                <div v-if="!lastScannedStudent && scanHistory.length === 0" 
+                     class="text-center py-8 h-full flex flex-col items-center justify-center border-2 border-dashed rounded-xl border-muted">
+                  <div class="mx-auto mb-3 w-12 h-12 bg-muted rounded-full flex items-center justify-center">
+                    <QrCode class="h-6 w-6 text-muted-foreground" />
+                  </div>
+                  <p class="text-sm font-medium text-muted-foreground mb-1">No scans yet</p>
+                  <p class="text-xs text-muted-foreground">
+                    Scan a student QR code to get started
+                  </p>
+                </div>
               </div>
-            </QrcodeStream>
-
-            <!-- Camera States -->
-            <div v-if="state.cameraStatus !== 'ready'" class="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-muted/50 to-background">
-              <Card class="max-w-md w-full mx-4">
-                <CardContent class="p-6 text-center space-y-4">
-                  <!-- Loading State -->
-                  <div v-if="state.cameraStatus === 'loading'">
-                    <RotateCw class="h-12 w-12 animate-spin mx-auto text-primary mb-4" />
-                    <div>
-                      <p class="font-semibold text-lg mb-2">Initializing Camera</p>
-                      <p class="text-sm text-muted-foreground">Please wait while we set up your camera...</p>
-                    </div>
-                  </div>
-                  
-                  <!-- Unsupported State -->
-                  <div v-else-if="state.cameraStatus === 'unsupported'">
-                    <AlertCircle class="h-12 w-12 mx-auto text-yellow-500 mb-4" />
-                    <div>
-                      <p class="font-semibold text-lg mb-2">Camera Not Available</p>
-                      <p class="text-sm text-muted-foreground mb-4">
-                        Camera requires HTTPS connection or is not supported in your browser.
-                      </p>
-                    </div>
-                    <Button @click="switchToManual" class="w-full">
-                      <Upload class="h-4 w-4 mr-2" />
-                      Switch to Manual Mode
-                    </Button>
-                  </div>
-                  
-                  <!-- Permission Denied -->
-                  <div v-else-if="state.cameraStatus === 'denied'">
-                    <Shield class="h-12 w-12 mx-auto text-red-500 mb-4" />
-                    <div>
-                      <p class="font-semibold text-lg mb-2">Camera Permission Denied</p>
-                      <p class="text-sm text-muted-foreground mb-4">
-                        Please allow camera access in your browser settings to use the scanner.
-                      </p>
-                    </div>
-                    <div class="space-y-2">
-                      <Button @click="switchToManual" class="w-full">
-                        Use Manual Mode
-                      </Button>
-                      <Button @click="checkCameraCapabilities" variant="outline" class="w-full">
-                        Retry Camera
-                      </Button>
-                    </div>
-                  </div>
-                  
-                  <!-- Error State -->
-                  <div v-else-if="state.cameraStatus === 'error'">
-                    <AlertCircle class="h-12 w-12 mx-auto text-destructive mb-4" />
-                    <div>
-                      <p class="font-semibold text-lg mb-2">Camera Error</p>
-                      <p class="text-sm text-muted-foreground mb-4">{{ state.error }}</p>
-                    </div>
-                    <div class="space-y-2">
-                      <Button @click="state.camera = 'auto'" variant="outline" class="w-full">
-                        <RotateCw class="h-4 w-4 mr-2" />
-                        Retry Camera
-                      </Button>
-                      <Button @click="switchToManual" class="w-full">
-                        Use Manual Mode
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
-            <!-- Enhanced Camera Controls -->
-            <div v-if="state.cameraStatus === 'ready'" class="absolute bottom-6 left-1/2 transform -translate-x-1/2 flex gap-3">
-              <Button 
-                variant="secondary" 
-                size="lg" 
-                @click="switchCamera" 
-                :title="getCameraLabel()"
-                class="rounded-full shadow-xl backdrop-blur bg-background/80"
-              >
-                <SwitchCamera class="h-5 w-5 mr-2" />
-                Switch
-              </Button>
-              
-              <Button 
-                :variant="state.torch ? 'default' : 'secondary'"
-                size="lg" 
-                @click="toggleTorch" 
-                :disabled="!canToggleTorch"
-                :title="state.torch ? 'Turn off flash' : 'Turn on flash'"
-                class="rounded-full shadow-xl backdrop-blur bg-background/80"
-              >
-                <Flashlight class="h-5 w-5 mr-2" />
-                {{ state.torch ? 'On' : 'Off' }}
-              </Button>
-              
-              <Button 
-                :variant="state.isPaused ? 'destructive' : 'secondary'"
-                size="lg" 
-                @click="state.isPaused ? resumeScanner() : pauseScanner()"
-                :title="state.isPaused ? 'Resume scanning' : 'Pause scanning'"
-                class="rounded-full shadow-xl backdrop-blur bg-background/80"
-              >
-                <Camera class="h-5 w-5 mr-2" />
-                {{ state.isPaused ? 'Resume' : 'Pause' }}
-              </Button>
             </div>
           </TabsContent>
 
-          <!-- Enhanced Manual Input Tab -->
+          <!-- Manual Input Tab Content -->
           <TabsContent value="manual" class="flex-1 m-0 p-6 overflow-auto data-[state=inactive]:hidden">
-            <div class="container mx-auto max-w-2xl">
-              <div class="grid gap-6">
-                <!-- Manual Input Card -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full">
+              <!-- Manual Form -->
+              <div class="space-y-6">
                 <Card>
                   <CardHeader class="text-center pb-4">
-                    <div class="mx-auto mb-4 w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center">
-                      <QrCode class="h-10 w-10 text-primary" />
+                    <div class="mx-auto mb-4 w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
+                      <User class="h-8 w-8 text-primary" />
                     </div>
-                    <CardTitle>Manual QR Code Input</CardTitle>
+                    <CardTitle>Manual Student Entry</CardTitle>
                     <p class="text-sm text-muted-foreground">
-                      Paste JSON data from QR code or use test scan
+                      Enter student details to mark attendance
                     </p>
                   </CardHeader>
                   <CardContent class="space-y-4">
-                    <div class="space-y-3">
-                      <Label for="qr-data" class="flex items-center gap-2">
-                        <Upload class="h-4 w-4" />
-                        QR Code JSON Data
+                    <div class="space-y-2">
+                      <Label for="studentId" class="flex items-center gap-2">
+                        <Hash class="h-4 w-4 text-muted-foreground" />
+                        Student ID *
                       </Label>
-                      <Textarea
-                        id="qr-data"
-                        v-model="state.manualQrInput"
-                        placeholder='{"student_id": "STU-001", "name": "John Doe", "year": "2024", "course": "BSCS", "section": "A"}'
-                        class="min-h-[140px] font-mono text-sm resize-none"
-                        :disabled="state.isLoading"
+                      <Input
+                        id="studentId"
+                        v-model="studentId"
+                        placeholder="Enter student ID (e.g., STU-001)"
+                        :disabled="isLoading"
+                        @blur="validateField('student_id', studentId)"
+                        :class="{ 'border-destructive': formErrors.student_id }"
                       />
-                      <div class="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>Enter valid JSON format</span>
-                        <span>{{ state.manualQrInput.length }} characters</span>
+                      <p v-if="formErrors.student_id" class="text-sm text-destructive">
+                        {{ formErrors.student_id }}
+                      </p>
+                    </div>
+                    
+                    <div class="space-y-2">
+                      <Label for="studentName" class="flex items-center gap-2">
+                        <User class="h-4 w-4 text-muted-foreground" />
+                        Full Name *
+                      </Label>
+                      <Input
+                        id="studentName"
+                        v-model="studentName"
+                        placeholder="Enter student full name"
+                        :disabled="isLoading"
+                        @blur="validateField('name', studentName)"
+                        :class="{ 'border-destructive': formErrors.name }"
+                      />
+                      <p v-if="formErrors.name" class="text-sm text-destructive">
+                        {{ formErrors.name }}
+                      </p>
+                    </div>
+                    
+                    <div class="space-y-2">
+                      <Label for="studentYear" class="flex items-center gap-2">
+                        <GraduationCap class="h-4 w-4 text-muted-foreground" />
+                        Year Level
+                      </Label>
+                      <Select v-model="studentYear" @update:modelValue="validateField('year', studentYear)">
+                        <SelectTrigger :class="{ 'border-destructive': formErrors.year }">
+                          <SelectValue placeholder="Select year level" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem v-for="level in yearLevels" :key="level.value" :value="level.value">
+                            {{ level.label }}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p v-if="formErrors.year" class="text-sm text-destructive">
+                        {{ formErrors.year }}
+                      </p>
+                    </div>
+                    
+                    <div class="grid grid-cols-2 gap-4">
+                      <div class="space-y-2">
+                        <Label for="studentCourse">Course</Label>
+                        <Input
+                          id="studentCourse"
+                          v-model="studentCourse"
+                          placeholder="e.g., BSCS"
+                          :disabled="isLoading"
+                          @blur="validateField('course', studentCourse)"
+                          :class="{ 'border-destructive': formErrors.course }"
+                        />
+                        <p v-if="formErrors.course" class="text-sm text-destructive">
+                          {{ formErrors.course }}
+                        </p>
+                      </div>
+                      
+                      <div class="space-y-2">
+                        <Label for="studentSection">Section</Label>
+                        <Input
+                          id="studentSection"
+                          v-model="studentSection"
+                          placeholder="e.g., A"
+                          :disabled="isLoading"
+                          @blur="validateField('section', studentSection)"
+                          :class="{ 'border-destructive': formErrors.section }"
+                        />
+                        <p v-if="formErrors.section" class="text-sm text-destructive">
+                          {{ formErrors.section }}
+                        </p>
                       </div>
                     </div>
 
                     <Button 
-                      @click="processManualInput" 
-                      :disabled="state.isLoading || !state.manualQrInput.trim()" 
+                      @click="processManualForm" 
+                      :disabled="isLoading || !studentId.trim() || !studentName.trim() || Object.values(formErrors).some(e => e)" 
                       class="w-full"
                       size="lg"
                     >
                       <CheckCircle class="mr-2 h-5 w-5" />
-                      {{ state.isLoading ? 'Processing...' : 'Mark Attendance' }}
+                      {{ isLoading ? 'Processing...' : 'Mark Attendance' }}
                     </Button>
                   </CardContent>
                 </Card>
 
-                <!-- Recent Scans -->
-                <Card v-if="recentScans.length > 0">
+                <!-- JSON Input (Alternative) -->
+                <Card>
+                  <CardHeader>
+                    <CardTitle class="flex items-center gap-2">
+                      <QrCode class="h-5 w-5 text-muted-foreground" />
+                      JSON Input
+                    </CardTitle>
+                    <p class="text-sm text-muted-foreground">
+                      Paste JSON data from QR code
+                    </p>
+                  </CardHeader>
+                  <CardContent class="space-y-4">
+                    <div class="space-y-2">
+                      <Label>QR Code JSON Data</Label>
+                      <Textarea
+                        v-model="manualQrInput"
+                        placeholder='{"student_id": "STU-001", "name": "John Doe", "year": "2nd", "course": "BSCS", "section": "A"}'
+                        class="min-h-[120px] font-mono text-sm resize-none"
+                        :disabled="isLoading"
+                      />
+                      <p class="text-xs text-muted-foreground">
+                        Enter valid JSON format with student information. Year should be 1st, 2nd, 3rd, 4th, or 5th.
+                      </p>
+                    </div>
+
+                    <Button 
+                      @click="processManualInput" 
+                      :disabled="isLoading || !manualQrInput.trim()" 
+                      class="w-full"
+                      size="lg"
+                    >
+                      <CheckCircle class="mr-2 h-5 w-5" />
+                      {{ isLoading ? 'Processing...' : 'Mark Attendance from JSON' }}
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
+              
+              <!-- Results and History -->
+              <div class="space-y-6">
+                <!-- Last Scanned Student -->
+                <div v-if="lastScannedStudent" class="animate-fade-in">
+                  <div class="flex items-center gap-2 mb-3">
+                    <CheckCircle class="h-4 w-4 text-green-500" />
+                    <p class="text-sm font-medium text-muted-foreground">Last Added</p>
+                    <Badge variant="outline" class="ml-auto text-xs">
+                      {{ formatTime(lastScannedStudent.timestamp!) }}
+                    </Badge>
+                  </div>
+                  <Card class="border-green-200 bg-green-50/50 dark:bg-green-950/20">
+                    <CardContent class="p-4">
+                      <div class="flex items-start gap-3">
+                        <Avatar class="h-12 w-12 border-2 border-green-500 shrink-0">
+                          <AvatarFallback class="bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 font-semibold">
+                            {{ getInitials(lastScannedStudent.name) }}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div class="flex-1 min-w-0 space-y-2">
+                          <div class="flex items-start gap-2">
+                            <p class="font-semibold text-sm leading-tight truncate">{{ lastScannedStudent.name }}</p>
+                            <Badge variant="default" class="bg-green-500 hover:bg-green-500 shrink-0">
+                              Present
+                            </Badge>
+                          </div>
+                          
+                          <div class="space-y-1 text-xs">
+                            <div class="flex items-center gap-2">
+                              <Hash class="h-3 w-3 text-muted-foreground" />
+                              <span class="text-muted-foreground">ID:</span>
+                              <span class="font-mono">{{ lastScannedStudent.student_id }}</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                              <BookOpen class="h-3 w-3 text-muted-foreground" />
+                              <span class="text-muted-foreground">Course:</span>
+                              <span>{{ lastScannedStudent.course || 'N/A' }}</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                              <GraduationCap class="h-3 w-3 text-muted-foreground" />
+                              <span class="text-muted-foreground">Year:</span>
+                              <Badge :variant="getYearBadgeVariant(lastScannedStudent.year)" class="text-xs">
+                                {{ lastScannedStudent.year || 'N/A' }}
+                              </Badge>
+                            </div>
+                            <div class="flex items-center gap-2">
+                              <Calendar class="h-3 w-3 text-muted-foreground" />
+                              <span class="text-muted-foreground">Section:</span>
+                              <span>{{ lastScannedStudent.section || 'N/A' }}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <!-- Scan History -->
+                <Card v-if="scanHistory.length > 0">
                   <CardHeader class="pb-3">
-                    <CardTitle class="text-lg flex items-center gap-2">
-                      <User class="h-5 w-5" />
-                      Recent Scans ({{ recentScans.length }})
+                    <CardTitle class="text-sm flex items-center gap-2">
+                      <Calendar class="h-4 w-4 text-muted-foreground" />
+                      Scan History
                     </CardTitle>
                   </CardHeader>
-                  <CardContent class="space-y-3">
-                    <div 
-                      v-for="student in recentScans" 
-                      :key="student.id"
-                      class="flex items-center gap-3 p-3 rounded-lg border bg-muted/20 hover:bg-muted/40 transition-colors"
-                    >
-                      <Avatar class="h-10 w-10 border">
-                        <AvatarFallback class="text-xs font-semibold">
-                          {{ getInitials(student.name) }}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div class="flex-1 min-w-0">
-                        <p class="font-medium text-sm truncate">{{ student.name }}</p>
-                        <p class="text-xs text-muted-foreground truncate">
-                          {{ student.course }} • {{ student.student_id }}
-                        </p>
+                  <CardContent class="p-0">
+                    <div class="max-h-80 overflow-y-auto">
+                      <div v-for="(scan, index) in scanHistory" :key="scan.student.id" 
+                           class="p-3 border-b last:border-b-0 hover:bg-muted/50 transition-colors">
+                        <div class="flex items-center gap-3">
+                          <Avatar class="h-8 w-8 shrink-0">
+                            <AvatarFallback class="text-xs">
+                              {{ getInitials(scan.student.name) }}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div class="flex-1 min-w-0">
+                            <p class="text-sm font-medium truncate">{{ scan.student.name }}</p>
+                            <div class="flex items-center gap-2 mt-1">
+                              <Badge :variant="getYearBadgeVariant(scan.student.year)" class="text-xs" v-if="scan.student.year">
+                                {{ scan.student.year }}
+                              </Badge>
+                              <span class="text-xs text-muted-foreground font-mono">{{ scan.student.student_id }}</span>
+                            </div>
+                          </div>
+                          <div class="text-right shrink-0">
+                            <Badge variant="outline" class="text-xs mb-1">
+                              {{ formatTime(scan.student.timestamp!) }}
+                            </Badge>
+                            <p class="text-xs text-muted-foreground capitalize">{{ scan.format }}</p>
+                          </div>
+                        </div>
                       </div>
-                      <Badge variant="outline" class="text-xs">
-                        Present
-                      </Badge>
                     </div>
                   </CardContent>
                 </Card>
+
+                <!-- Empty State -->
+                <div v-if="!lastScannedStudent && scanHistory.length === 0" 
+                     class="text-center py-12 h-full flex flex-col items-center justify-center border-2 border-dashed rounded-xl border-muted">
+                  <div class="mx-auto mb-3 w-12 h-12 bg-muted rounded-full flex items-center justify-center">
+                    <User class="h-6 w-6 text-muted-foreground" />
+                  </div>
+                  <p class="text-sm font-medium text-muted-foreground mb-1">No entries yet</p>
+                  <p class="text-xs text-muted-foreground">
+                    Add a student to get started
+                  </p>
+                </div>
               </div>
             </div>
           </TabsContent>
         </Tabs>
       </div>
 
-      <!-- Enhanced Loading Overlay -->
-      <div v-if="state.isLoading" class="absolute inset-0 bg-background/90 backdrop-blur-sm flex items-center justify-center z-20">
-        <Card class="max-w-sm animate-pulse">
-          <CardContent class="p-6 text-center space-y-4">
-            <div class="relative">
-              <RotateCw class="h-12 w-12 animate-spin mx-auto text-primary" />
-              <Scan class="h-6 w-6 text-primary absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2" />
-            </div>
+      <!-- Loading Overlay -->
+      <div v-if="isLoading" class="absolute inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-20">
+        <Card class="max-w-sm">
+          <CardContent class="p-6 text-center">
+            <RotateCw class="h-10 w-10 animate-spin mx-auto text-primary mb-4" />
             <div>
-              <p class="font-semibold text-lg mb-1">Processing QR Code</p>
+              <p class="font-semibold text-lg mb-1">Processing</p>
               <p class="text-sm text-muted-foreground">Marking attendance...</p>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      <!-- Enhanced Error Alert -->
-      <div v-if="state.error" class="flex-shrink-0 p-4 border-t bg-destructive/5">
-        <div class="container mx-auto max-w-2xl">
-          <Alert variant="destructive" class="animate-in slide-in-from-bottom">
-            <div class="flex items-center justify-between w-full">
-              <div class="flex items-center gap-2">
-                <AlertCircle class="h-4 w-4" />
-                <AlertDescription>{{ state.error }}</AlertDescription>
-              </div>
-              <Button variant="ghost" size="sm" @click="clearError" class="h-8 w-8 p-0">
-                <X class="h-4 w-4" />
-              </Button>
-            </div>
+      <!-- Error Alert -->
+      <div v-if="error" class="flex-shrink-0 p-4 border-t bg-background animate-fade-in">
+        <div class="max-w-4xl mx-auto">
+          <Alert variant="destructive">
+            <AlertCircle class="h-4 w-4" />
+            <AlertDescription>{{ error }}</AlertDescription>
           </Alert>
-        </div>
-      </div>
-
-      <!-- Enhanced Last Scanned Section -->
-      <div class="flex-shrink-0 border-t bg-gradient-to-r from-muted/30 to-background/30">
-        <div class="container mx-auto px-4 py-4">
-          <div v-if="state.lastScannedStudent" class="space-y-3">
-            <div class="flex items-center justify-between">
-              <p class="text-sm font-medium text-muted-foreground">Last Scanned Student</p>
-              <Badge variant="secondary" class="text-xs">
-                {{ scanCount }} total
-              </Badge>
-            </div>
-            <Card class="bg-card/50 backdrop-blur border-primary/20 shadow-sm">
-              <CardContent class="p-4">
-                <div class="flex items-center gap-4">
-                  <Avatar class="h-14 w-14 border-2 border-primary/20 shadow-sm">
-                    <AvatarFallback class="bg-primary/10 text-primary font-semibold text-sm">
-                      {{ getInitials(state.lastScannedStudent.name) }}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div class="flex-1 min-w-0">
-                    <div class="flex items-center gap-2 mb-2">
-                      <p class="font-semibold text-lg truncate">{{ state.lastScannedStudent.name }}</p>
-                      <Badge class="bg-green-500 hover:bg-green-500 shadow-sm">
-                        <CheckCircle class="h-3 w-3 mr-1" />
-                        Present
-                      </Badge>
-                    </div>
-                    <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-                      <div>
-                        <span class="text-muted-foreground">ID:</span>
-                        <span class="font-medium ml-1">{{ state.lastScannedStudent.student_id }}</span>
-                      </div>
-                      <div>
-                        <span class="text-muted-foreground">Course:</span>
-                        <span class="font-medium ml-1">{{ state.lastScannedStudent.course }}</span>
-                      </div>
-                      <div>
-                        <span class="text-muted-foreground">Year/Section:</span>
-                        <span class="font-medium ml-1">{{ state.lastScannedStudent.year }}-{{ state.lastScannedStudent.section }}</span>
-                      </div>
-                      <div>
-                        <span class="text-muted-foreground">Status:</span>
-                        <span class="font-medium ml-1 text-green-600">Marked Present</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          <div v-else class="text-center py-8">
-            <div class="mx-auto mb-4 w-16 h-16 bg-muted rounded-full flex items-center justify-center">
-              <QrCode class="h-8 w-8 text-muted-foreground" />
-            </div>
-            <p class="text-sm text-muted-foreground">
-              {{ state.activeTab === 'camera' ? 'Scan a QR code to mark attendance' : 'Enter QR data above to mark attendance' }}
-            </p>
-            <Button variant="outline" size="sm" @click="quickTestScan" class="mt-3">
-              <Zap class="h-4 w-4 mr-2" />
-              Quick Test
-            </Button>
-          </div>
         </div>
       </div>
     </div>
@@ -841,56 +1197,25 @@ const clearScanHistory = () => {
 :deep(.qrcode-stream-camera) {
   width: 100% !important;
   height: 100% !important;
-  object-fit: cover !important;
-}
-
-:deep(.qrcode-stream-overlay) {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
+  object-fit: contain !important;
 }
 
 @keyframes scan {
-  0% {
-    top: 0;
-    opacity: 0;
-    transform: scaleX(0.8);
-  }
-  10% {
-    opacity: 1;
-  }
-  90% {
-    opacity: 1;
-  }
-  100% {
-    top: 100%;
-    opacity: 0;
-    transform: scaleX(1.2);
-  }
+  0% { top: 0; opacity: 0; }
+  50% { opacity: 1; }
+  100% { top: 100%; opacity: 0; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .animate-scan {
-  animation: scan 2.5s ease-in-out infinite;
+  animation: scan 2s ease-in-out infinite;
 }
 
-/* Smooth transitions for scanner states */
-.scanner-transition-enter-active,
-.scanner-transition-leave-active {
-  transition: all 0.3s ease;
-}
-
-.scanner-transition-enter-from,
-.scanner-transition-leave-to {
-  opacity: 0;
-  transform: scale(0.95);
-}
-
-/* Backdrop blur support fallback */
-@supports not (backdrop-filter: blur(10px)) {
-  .backdrop-blur {
-    background-color: rgba(255, 255, 255, 0.9);
-  }
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out;
 }
 </style>
