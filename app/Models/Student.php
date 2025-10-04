@@ -13,6 +13,7 @@ class Student extends Model
         'student_id',
         'name',
         'email',
+        'class_id',
         'year',
         'course',
         'section',
@@ -31,9 +32,29 @@ class Student extends Model
         return $this->hasMany(Attendance::class);
     }
 
+    public function user()
+    {
+        return $this->belongsTo(User::class, 'email', 'email');
+    }
+
+    // Direct class relationship (single class via class_id)
+    public function class()
+    {
+        return $this->belongsTo(ClassModel::class, 'class_id');
+    }
+
+    // Many-to-many relationship (multiple classes via pivot table)
     public function classes()
     {
-        return $this->belongsToMany(ClassModel::class, 'class_student');
+        return $this->belongsToMany(ClassModel::class, 'class_student')
+                    ->withPivot(['is_active', 'enrolled_at', 'dropped_at'])
+                    ->withTimestamps();
+    }
+
+    // Get active enrolled classes
+    public function activeClasses()
+    {
+        return $this->classes()->wherePivot('is_active', true);
     }
 
     // Generate QR code data
