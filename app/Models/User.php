@@ -45,4 +45,20 @@ class User extends Authenticatable
             'password' => 'hashed',
         ];
     }
+
+    /**
+     * Get the teacher record associated with the user.
+     */
+    public function teacher()
+    {
+        return $this->hasOne(Teacher::class);
+    }
+
+    /**
+     * Check if the user is a teacher.
+     */
+    public function isTeacher()
+    {
+        return $this->teacher()->exists();
+    }
 }

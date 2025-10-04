@@ -36,4 +36,38 @@ class ClassModel extends Model
     {
         return $this->belongsToMany(Student::class, 'class_student');
     }
+
+    public function attendanceSessions()
+    {
+        return $this->hasMany(AttendanceSession::class, 'class_id');
+    }
+
+    public function classFiles()
+    {
+        return $this->hasMany(ClassFile::class, 'class_id');
+    }
+
+    // Scopes
+    public function scopeForTeacher($query, $teacherId)
+    {
+        return $query->where('teacher_id', $teacherId);
+    }
+
+    public function scopeActive($query)
+    {
+        return $query->where('is_active', 'true');
+    }
+
+    // Accessors
+    public function getStudentCountAttribute()
+    {
+        return $this->students()->count();
+    }
+
+    public function getLastSessionAttribute()
+    {
+        return $this->attendanceSessions()
+                    ->latest('session_date')
+                    ->first();
+    }
 }

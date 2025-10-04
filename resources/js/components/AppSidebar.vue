@@ -3,39 +3,77 @@ import NavFooter from '@/components/NavFooter.vue';
 import NavMain from '@/components/NavMain.vue';
 import NavUser from '@/components/NavUser.vue';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
-import { dashboard } from '@/routes';
 import { type NavItem } from '@/types';
-import { Link } from '@inertiajs/vue3';
-import { BookOpen, Folder, LayoutGrid, Users, ClipboardCheck, BarChart3, FileText } from 'lucide-vue-next';
+import { Link, usePage } from '@inertiajs/vue3';
+import { BookOpen, Folder, LayoutGrid, Users, ClipboardCheck, BarChart3, FileText, GraduationCap, Settings } from 'lucide-vue-next';
+import { computed } from 'vue';
 import AppLogo from './AppLogo.vue';
 
-const mainNavItems: NavItem[] = [
-  {
-    title: 'Dashboard',
-    href: dashboard(),
-    icon: LayoutGrid,
-  },
-  {
-    title: 'Class Management',
-    href: '/classes',
-    icon: Users,
-  },
-  {
-    title: 'Attendance',
-    href: '/attendance',
-    icon: ClipboardCheck,
-  },
-  {
-    title: 'Reports',
-    href: '/reports',
-    icon: BarChart3,
-  },
-  {
-    title: 'Files',
-    href: '/files',
-    icon: FileText,
-  },
-];
+const page = usePage();
+const user = computed(() => page.props.auth?.user);
+
+// Check if user is a teacher
+const isTeacher = computed(() => {
+  return user.value?.isTeacher === true;
+});
+
+// Dynamic navigation based on user role
+const mainNavItems = computed((): NavItem[] => {
+  if (isTeacher.value) {
+    // Teacher Navigation
+    return [
+      {
+        title: 'Dashboard',
+        href: '/teacher/dashboard',
+        icon: LayoutGrid,
+      },
+      {
+        title: 'Class Management',
+        href: '/teacher/classes',
+        icon: Users,
+      },
+      {
+        title: 'Attendance',
+        href: '/teacher/attendance',
+        icon: ClipboardCheck,
+      },
+      {
+        title: 'Reports',
+        href: '/teacher/reports',
+        icon: BarChart3,
+      },
+      {
+        title: 'Files',
+        href: '/teacher/files',
+        icon: FileText,
+      },
+    ];
+  } else {
+    // Admin Navigation
+    return [
+      {
+        title: 'Dashboard',
+        href: '/dashboard',
+        icon: LayoutGrid,
+      },
+      {
+        title: 'Teachers',
+        href: '/admin/teachers',
+        icon: GraduationCap,
+      },
+      {
+        title: 'Reports',
+        href: '/admin/reports',
+        icon: BarChart3,
+      },
+      {
+        title: 'Settings',
+        href: '/admin/settings',
+        icon: Settings,
+      },
+    ];
+  }
+});
 
 const footerNavItems: NavItem[] = [
   {
@@ -57,7 +95,7 @@ const footerNavItems: NavItem[] = [
       <SidebarMenu>
         <SidebarMenuItem>
           <SidebarMenuButton size="lg" as-child>
-            <Link :href="dashboard()">
+            <Link :href="isTeacher ? '/teacher/dashboard' : '/dashboard'">
               <AppLogo />
             </Link>
           </SidebarMenuButton>

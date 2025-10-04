@@ -62,7 +62,7 @@ class FilesController extends Controller
             ]
         ];
 
-        return Inertia::render('Files', [
+        return Inertia::render('AdminFiles', [
             'files' => $files
         ]);
     }
@@ -128,7 +128,7 @@ class FilesController extends Controller
         
         Storage::disk('public')->delete($filePath);
 
-        return Inertia::render('Files', [
+        return Inertia::render('AdminFiles', [
             'files' => $this->getFilesFromStorage()
         ]);
     }
