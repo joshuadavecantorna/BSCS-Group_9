@@ -20,7 +20,7 @@
               <div class="w-2 h-2 bg-blue-500 rounded-full"></div>
             </div>
             <span class="text-sm font-medium">Total Records</span>
-            <div class="text-2xl font-bold mt-1">{{ props.summaryStats.total }}</div>
+            <div class="text-2xl font-bold mt-1">{{ props.summaryStats?.total || 0 }}</div>
           </CardContent>
         </Card>
         <Card>
@@ -30,7 +30,7 @@
               <div class="w-2 h-2 bg-green-500 rounded-full"></div>
             </div>
             <span class="text-sm font-medium">Present</span>
-            <div class="text-2xl font-bold mt-1 text-green-600">{{ props.summaryStats.present }}</div>
+            <div class="text-2xl font-bold mt-1 text-green-600">{{ props.summaryStats?.present || 0 }}</div>
           </CardContent>
         </Card>
         <Card>
@@ -40,7 +40,7 @@
               <div class="w-2 h-2 bg-red-500 rounded-full"></div>
             </div>
             <span class="text-sm font-medium">Absent</span>
-            <div class="text-2xl font-bold mt-1 text-red-600">{{ props.summaryStats.absent }}</div>
+            <div class="text-2xl font-bold mt-1 text-red-600">{{ props.summaryStats?.absent || 0 }}</div>
           </CardContent>
         </Card>
         <Card>
@@ -50,7 +50,7 @@
               <div class="w-2 h-2 bg-yellow-500 rounded-full"></div>
             </div>
             <span class="text-sm font-medium">Excused</span>
-            <div class="text-2xl font-bold mt-1 text-yellow-600">{{ props.summaryStats.excused }}</div>
+            <div class="text-2xl font-bold mt-1 text-yellow-600">{{ props.summaryStats?.excused || 0 }}</div>
           </CardContent>
         </Card>
         <Card>
@@ -60,7 +60,7 @@
               <div class="w-2 h-2 bg-orange-500 rounded-full"></div>
             </div>
             <span class="text-sm font-medium">Late</span>
-            <div class="text-2xl font-bold mt-1 text-orange-600">{{ props.summaryStats.late }}</div>
+            <div class="text-2xl font-bold mt-1 text-orange-600">{{ props.summaryStats?.late || 0 }}</div>
           </CardContent>
         </Card>
       </div>
@@ -83,8 +83,7 @@
                   <SelectValue placeholder="All Departments" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Departments</SelectItem>
-                  <SelectItem v-for="dept in props.departments" :key="dept" :value="dept">
+                  <SelectItem v-for="dept in (props.departments || [])" :key="dept" :value="dept">
                     {{ dept }}
                   </SelectItem>
                 </SelectContent>
@@ -97,8 +96,7 @@
                   <SelectValue placeholder="All Teachers" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Teachers</SelectItem>
-                  <SelectItem v-for="teacher in props.teachers" :key="teacher.id" :value="teacher.id.toString()">
+                  <SelectItem v-for="teacher in (props.teachers || [])" :key="teacher.id" :value="teacher.id.toString()">
                     {{ teacher.name }}
                   </SelectItem>
                 </SelectContent>
@@ -111,7 +109,6 @@
                   <SelectValue placeholder="All Classes" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Classes</SelectItem>
                   <SelectItem v-for="cls in classes" :key="cls.id" :value="cls.id.toString()">
                     {{ cls.name }} ({{ cls.course }})
                   </SelectItem>
@@ -133,7 +130,6 @@
                   <SelectValue placeholder="All Status" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Status</SelectItem>
                   <SelectItem value="present">Present</SelectItem>
                   <SelectItem value="absent">Absent</SelectItem>
                   <SelectItem value="excused">Excused</SelectItem>
@@ -275,8 +271,8 @@
             <p class="font-semibold text-gray-900 dark:text-gray-100">Current Filters:</p>
             <ul class="list-disc list-inside space-y-1 mt-2 text-gray-700 dark:text-gray-300">
               <li v-if="filters.department">Department: {{ filters.department }}</li>
-              <li v-if="filters.teacher_id">Teacher: {{ props.teachers.find(t => t.id.toString() === filters.teacher_id)?.name }}</li>
-              <li v-if="filters.class_id">Class: {{ props.classes.find(c => c.id.toString() === filters.class_id)?.name }}</li>
+              <li v-if="filters.teacher_id">Teacher: {{ props.teachers?.find(t => t.id.toString() === filters.teacher_id)?.name }}</li>
+              <li v-if="filters.class_id">Class: {{ props.classes?.find(c => c.id.toString() === filters.class_id)?.name }}</li>
               <li v-if="filters.date_from">From: {{ filters.date_from }}</li>
               <li v-if="filters.date_to">To: {{ filters.date_to }}</li>
               <li v-if="filters.status">Status: {{ filters.status }}</li>
@@ -285,7 +281,7 @@
           </div>
           
           <div class="text-sm bg-blue-50 dark:bg-blue-900 p-3 rounded border">
-            <p class="text-gray-900 dark:text-gray-100"><span class="font-semibold">{{ props.summaryStats.total }}</span> records will be included in the report.</p>
+            <p class="text-gray-900 dark:text-gray-100"><span class="font-semibold">{{ props.summaryStats?.total || 0 }}</span> records will be included in the report.</p>
           </div>
         </div>
 
@@ -376,12 +372,12 @@ const breadcrumbs = [
 
 // Filter states - initialize with current filters from props
 const filters = ref({
-  department: props.filters.department || '',
-  teacher_id: props.filters.teacher_id || '',
-  class_id: props.filters.class_id || '',
-  date_from: props.filters.date_from || '',
-  date_to: props.filters.date_to || '',
-  status: props.filters.status || ''
+  department: props.filters?.department || '',
+  teacher_id: props.filters?.teacher_id || '',
+  class_id: props.filters?.class_id || '',
+  date_from: props.filters?.date_from || '',
+  date_to: props.filters?.date_to || '',
+  status: props.filters?.status || ''
 });
 
 // Email form for sending reports
@@ -398,7 +394,7 @@ const emailForm = useForm({
 const showEmailDialog = ref(false);
 
 // Available classes from props
-const classes = computed(() => props.classes);
+const classes = computed(() => props.classes || []);
 
 // Interface for formatted attendance record
 interface AttendanceRecord {
@@ -425,10 +421,13 @@ interface SortConfig {
 const sortConfig = ref<SortConfig>({ key: 'student_name', direction: 'asc' });
 
 // Use real attendance data from props
-const attendanceData = computed(() => props.attendanceRecords.data || []);
+const attendanceData = computed(() => props.attendanceRecords?.data || []);
 
 // Formatted data for display
 const filteredData = computed(() => {
+  if (!attendanceData.value || !Array.isArray(attendanceData.value)) {
+    return [];
+  }
   return attendanceData.value.map(record => ({
     id: record.id,
     student_name: record.student_name, // This field is already combined from the query
@@ -459,7 +458,7 @@ const applyFilters = () => {
   router.get('/admin/reports', filters.value, {
     preserveState: true,
     preserveScroll: true,
-    replace: true
+    only: ['attendanceRecords', 'summaryStats']
   });
 };
 
@@ -472,7 +471,11 @@ const clearFilters = () => {
     date_to: '',
     status: ''
   };
-  applyFilters();
+  router.get('/admin/reports', {}, {
+    preserveState: true,
+    preserveScroll: true,
+    only: ['attendanceRecords', 'summaryStats']
+  });
 };
 
 const exportToExcel = () => {
