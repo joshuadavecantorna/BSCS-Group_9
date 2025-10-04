@@ -1,42 +1,68 @@
 <script setup lang="ts">
 import AppLayout from '@/layouts/AppLayout.vue';
 import { Head } from '@inertiajs/vue3';
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import QrScanner from '@/components/QrScanner.vue';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 
+// Props from controller
+interface Props {
+  teacher: {
+    id: number;
+    first_name: string;
+    last_name: string;
+    department: string;
+    position: string;
+    email: string;
+  };
+  stats: {
+    totalClasses: number;
+    totalStudents: number;
+    todayPresent: number;
+    todayAbsent: number;
+    todayExcused: number;
+    todayDropped: number;
+    todaySessions: number;
+    weeklyAttendanceRate: number;
+    monthlyAttendanceRate: number;
+  };
+  recentActivity?: Array<{
+    time: string;
+    text: string;
+    type: string;
+  }>;
+}
+
+const props = defineProps<Props>();
+
 const breadcrumbs = [
-  { title: 'Dashboard', href: '/dashboard' }
+  { title: 'Teacher Dashboard', href: '/teacher/dashboard' }
 ];
 
 // QR Scanner state
 const showQRScanner = ref(false);
-const teacherName = ref("Prof. Juan Dela Cruz");
 
-// Mock data
-const stats = {
-  present: 142,
-  absent: 8,
-  excused: 5,
-  dropped: 3
-};
+// Computed properties
+const teacherName = computed(() => `${props.teacher.first_name} ${props.teacher.last_name}`);
 
-const recentActivities = [
-  { time: '9:00 AM', text: 'Class BSCS-A – Attendance started', type: 'info' },
-  { time: '9:15 AM', text: '3 students marked as excused', type: 'warning' },
-  { time: '8:45 AM', text: 'Student list uploaded for BSIT-B', type: 'success' },
-  { time: '8:30 AM', text: 'Class BSCS-C – Attendance completed', type: 'success' }
+// Mock recent activities if not provided
+const recentActivities = props.recentActivity || [
+  { time: '9:00 AM', text: 'Started attendance for Introduction to Programming', type: 'info' },
+  { time: '8:45 AM', text: 'Updated class schedule for Data Structures', type: 'success' },
+  { time: '8:30 AM', text: 'New student enrolled in class', type: 'success' },
+  { time: '8:15 AM', text: 'Attendance reminder sent to students', type: 'info' }
 ];
 
+// Mock weekly attendance data
 const weeklyAttendance = [
-  { day: 'Mon', present: 135, absent: 15 },
-  { day: 'Tue', present: 142, absent: 8 },
-  { day: 'Wed', present: 138, absent: 12 },
-  { day: 'Thu', present: 145, absent: 5 },
-  { day: 'Fri', present: 140, absent: 10 }
+  { day: 'Mon', present: Math.floor(props.stats.totalStudents * 0.9), absent: Math.floor(props.stats.totalStudents * 0.1) },
+  { day: 'Tue', present: Math.floor(props.stats.totalStudents * 0.95), absent: Math.floor(props.stats.totalStudents * 0.05) },
+  { day: 'Wed', present: Math.floor(props.stats.totalStudents * 0.88), absent: Math.floor(props.stats.totalStudents * 0.12) },
+  { day: 'Thu', present: Math.floor(props.stats.totalStudents * 0.92), absent: Math.floor(props.stats.totalStudents * 0.08) },
+  { day: 'Fri', present: Math.floor(props.stats.totalStudents * 0.85), absent: Math.floor(props.stats.totalStudents * 0.15) }
 ];
 
 const openQRScanner = () => {
@@ -55,7 +81,7 @@ const onScanSuccess = (studentData: any) => {
 </script>
 
 <template>
-  <Head title="Dashboard" />
+  <Head title="Teacher Dashboard" />
   
   <AppLayout :breadcrumbs="breadcrumbs">
     <div class="container mx-auto p-6 space-y-6">
@@ -77,7 +103,7 @@ const onScanSuccess = (studentData: any) => {
             <span class="text-xl">✅</span>
           </CardHeader>
           <CardContent>
-            <div class="text-2xl font-bold">{{ stats.present }}</div>
+            <div class="text-2xl font-bold">{{ stats.todayPresent }}</div>
             <p class="text-xs text-muted-foreground mt-1">
               <span class="text-emerald-600">+5%</span> from yesterday
             </p>
@@ -91,37 +117,37 @@ const onScanSuccess = (studentData: any) => {
             <span class="text-xl">❌</span>
           </CardHeader>
           <CardContent>
-            <div class="text-2xl font-bold">{{ stats.absent }}</div>
+            <div class="text-2xl font-bold">{{ stats.todayAbsent }}</div>
             <p class="text-xs text-muted-foreground mt-1">
               <span class="text-red-600">-2%</span> from yesterday
             </p>
           </CardContent>
         </Card>
 
-        <!-- Excused Requests -->
+        <!-- Total Classes -->
         <Card>
           <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle class="text-sm font-medium">Excused Requests</CardTitle>
-            <span class="text-xl">📝</span>
+            <CardTitle class="text-sm font-medium">Total Classes</CardTitle>
+            <span class="text-xl">📚</span>
           </CardHeader>
           <CardContent>
-            <div class="text-2xl font-bold">{{ stats.excused }}</div>
+            <div class="text-2xl font-bold">{{ stats.totalClasses }}</div>
             <p class="text-xs text-muted-foreground mt-1">
-              3 pending review
+              Active classes
             </p>
           </CardContent>
         </Card>
 
-        <!-- Dropped Students -->
+        <!-- Total Students -->
         <Card>
           <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle class="text-sm font-medium">Dropped Students</CardTitle>
-            <span class="text-xl">🚫</span>
+            <CardTitle class="text-sm font-medium">Total Students</CardTitle>
+            <span class="text-xl">👥</span>
           </CardHeader>
           <CardContent>
-            <div class="text-2xl font-bold">{{ stats.dropped }}</div>
+            <div class="text-2xl font-bold">{{ stats.totalStudents }}</div>
             <p class="text-xs text-muted-foreground mt-1">
-              This semester
+              Across all classes
             </p>
           </CardContent>
         </Card>
@@ -140,14 +166,14 @@ const onScanSuccess = (studentData: any) => {
               <CardDescription>Common tasks and shortcuts</CardDescription>
             </CardHeader>
             <CardContent class="space-y-2">
-              <Button variant="outline" class="w-full justify-start" size="lg">
+              <Button variant="outline" class="w-full justify-start" size="lg" @click="$inertia.visit('/teacher/classes')">
                 <span class="mr-2">➕</span>
-                Create Class
+                Manage Classes
               </Button>
               
-              <Button variant="outline" class="w-full justify-start" size="lg">
-                <span class="mr-2">📥</span>
-                Upload Student List
+              <Button variant="outline" class="w-full justify-start" size="lg" @click="$inertia.visit('/teacher/attendance')">
+                <span class="mr-2">📝</span>
+                Take Attendance
               </Button>
               
               <Button 
@@ -155,8 +181,13 @@ const onScanSuccess = (studentData: any) => {
                 class="w-full justify-start" 
                 size="lg"
               >
-                <span class="mr-2">🕒</span>
-                Start Attendance
+                <span class="mr-2">📱</span>
+                Start QR Attendance
+              </Button>
+
+              <Button variant="outline" class="w-full justify-start" size="lg" @click="$inertia.visit('/teacher/reports')">
+                <span class="mr-2">📊</span>
+                View Reports
               </Button>
             </CardContent>
           </Card>
@@ -169,29 +200,27 @@ const onScanSuccess = (studentData: any) => {
             </CardHeader>
             <CardContent>
               <div class="space-y-4">
-                <div 
-                  v-for="(activity, index) in recentActivities" 
-                  :key="index"
-                  class="flex items-start gap-3"
-                >
-                  <Badge 
-                    :variant="activity.type === 'info' ? 'default' : activity.type === 'warning' ? 'outline' : 'secondary'"
-                    class="mt-1"
-                  >
-                    <span v-if="activity.type === 'info'">ℹ️</span>
-                    <span v-if="activity.type === 'warning'">⚠️</span>
-                    <span v-if="activity.type === 'success'">✓</span>
-                  </Badge>
-                  <div class="flex-1 space-y-1">
-                    <p class="text-sm font-medium leading-none">
-                      {{ activity.text }}
-                    </p>
-                    <p class="text-sm text-muted-foreground">
-                      {{ activity.time }}
-                    </p>
+                <template v-for="(activity, index) in recentActivities" :key="index">
+                  <div class="flex items-start gap-3">
+                    <Badge 
+                      :variant="activity.type === 'info' ? 'default' : activity.type === 'warning' ? 'outline' : 'secondary'"
+                      class="mt-1"
+                    >
+                      <span v-if="activity.type === 'info'">ℹ️</span>
+                      <span v-if="activity.type === 'warning'">⚠️</span>
+                      <span v-if="activity.type === 'success'">✓</span>
+                    </Badge>
+                    <div class="flex-1 space-y-1">
+                      <p class="text-sm font-medium leading-none">
+                        {{ activity.text }}
+                      </p>
+                      <p class="text-sm text-muted-foreground">
+                        {{ activity.time }}
+                      </p>
+                    </div>
                   </div>
-                </div>
-                <Separator v-if="index < recentActivities.length - 1" />
+                  <Separator v-if="index < recentActivities.length - 1" />
+                </template>
               </div>
             </CardContent>
           </Card>
@@ -224,15 +253,15 @@ const onScanSuccess = (studentData: any) => {
                   <div class="flex gap-1 h-10 rounded-md overflow-hidden border">
                     <div 
                       class="bg-primary flex items-center justify-center text-primary-foreground text-xs font-medium transition-all hover:opacity-90"
-                      :style="{ width: `${(day.present / 150) * 100}%` }"
+                      :style="{ width: day.present > 0 ? `${(day.present / (day.present + day.absent)) * 100}%` : '0%' }"
                     >
-                      {{ day.present }}
+                      {{ day.present > 0 ? day.present : '' }}
                     </div>
                     <div 
                       class="bg-destructive flex items-center justify-center text-destructive-foreground text-xs font-medium transition-all hover:opacity-90"
-                      :style="{ width: `${(day.absent / 150) * 100}%` }"
+                      :style="{ width: day.absent > 0 ? `${(day.absent / (day.present + day.absent)) * 100}%` : '0%' }"
                     >
-                      {{ day.absent }}
+                      {{ day.absent > 0 ? day.absent : '' }}
                     </div>
                   </div>
                 </div>
