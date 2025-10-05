@@ -171,9 +171,9 @@ const onScanSuccess = (studentData: any) => {
                 Manage Classes
               </Button>
               
-              <Button variant="outline" class="w-full justify-start" size="lg" @click="$inertia.visit('/teacher/attendance')">
+              <Button variant="outline" class="w-full justify-start" size="lg" @click="$inertia.visit('/teacher/classes')">
                 <span class="mr-2">📝</span>
-                Take Attendance
+                Classes & Attendance
               </Button>
               
               <Button 
@@ -182,7 +182,7 @@ const onScanSuccess = (studentData: any) => {
                 size="lg"
               >
                 <span class="mr-2">📱</span>
-                Start QR Attendance
+                Quick QR Scanner
               </Button>
 
               <Button variant="outline" class="w-full justify-start" size="lg" @click="$inertia.visit('/teacher/reports')">

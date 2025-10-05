@@ -165,9 +165,10 @@ import {
 interface Props {
   open: boolean
   classes?: Array<{
-    id: string
+    id: number
     name: string
     section: string
+    course?: string
   }>
 }
 

@@ -21,6 +21,9 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'role',
+        'student_id',
+        'class_code',
     ];
 
     /**
@@ -55,10 +58,26 @@ class User extends Authenticatable
     }
 
     /**
+     * Get the student record associated with the user.
+     */
+    public function student()
+    {
+        return $this->hasOne(Student::class);
+    }
+
+    /**
      * Check if the user is a teacher.
      */
     public function isTeacher()
     {
         return $this->teacher()->exists();
+    }
+
+    /**
+     * Check if the user is a student.
+     */
+    public function isStudent()
+    {
+        return $this->role === 'student' && $this->student()->exists();
     }
 }

@@ -2,12 +2,39 @@
 import AppLayout from '@/layouts/AppLayout.vue';
 import { dashboard } from '@/routes';
 import { type BreadcrumbItem } from '@/types';
-import { Head, usePage } from '@inertiajs/vue3';
+import { Head, usePage, router } from '@inertiajs/vue3';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { QrCode, Clock, CheckCircle, XCircle, AlertCircle, Camera } from 'lucide-vue-next';
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
+import { QrcodeStream } from 'vue-qrcode-reader';
+
+// Props from the StudentController
+interface Props {
+  student?: any;
+  stats?: {
+    attendance_rate: number;
+    present_count: number;
+    absent_count: number;
+    excused_count: number;
+    total_sessions: number;
+  };
+  classes?: any[];
+  upcoming_classes?: any[];
+  recent_requests?: any[];
+  recent_attendance?: Array<{
+    class_name: string;
+    session_date: string;
+    status: 'present' | 'absent' | 'excused';
+  }>;
+}
+
+const props = defineProps<Props>();
 
 const page = usePage();
 const user = computed(() => page.props.auth.user);
@@ -17,37 +44,220 @@ const breadcrumbs: BreadcrumbItem[] = [
   { title: 'Dashboard', href: '/student/dashboard' }
 ];
 
-// Student attendance stats
-const attendanceStats = ref({
-  presentPercentage: 85,
-  absentPercentage: 10,
-  excusedPercentage: 5,
-  totalClasses: 40,
-  presentCount: 34,
-  absentCount: 4,
-  excusedCount: 2
+// Dialog states
+const showQRDialog = ref(false);
+const showClassIDDialog = ref(false);
+const selectedClass = ref('');
+const manualClassID = ref('');
+const camera = ref<'auto' | 'off'>('off');
+const qrError = ref('');
+const isProcessing = ref(false);
+
+// Use backend data with fallbacks
+const attendanceStats = computed(() => {
+  const stats = props.stats;
+  if (!stats) {
+    return {
+      presentPercentage: 0,
+      absentPercentage: 0,
+      excusedPercentage: 0,
+      totalClasses: 0,
+      presentCount: 0,
+      absentCount: 0,
+      excusedCount: 0
+    };
+  }
+  
+  const total = stats.total_sessions || 1; // Avoid division by zero
+  return {
+    presentPercentage: Math.round((stats.present_count / total) * 100),
+    absentPercentage: Math.round((stats.absent_count / total) * 100),
+    excusedPercentage: Math.round((stats.excused_count / total) * 100),
+    totalClasses: stats.total_sessions,
+    presentCount: stats.present_count,
+    absentCount: stats.absent_count,
+    excusedCount: stats.excused_count
+  };
 });
 
-// Upcoming classes
-const upcomingClasses = ref([
-  { id: 1, name: 'Computer Science 101', time: '09:00 AM', date: 'Today', room: 'Room 201' },
-  { id: 2, name: 'Mathematics 201', time: '11:00 AM', date: 'Today', room: 'Room 105' },
-  { id: 3, name: 'Physics 101', time: '02:00 PM', date: 'Tomorrow', room: 'Lab 301' },
-  { id: 4, name: 'English 101', time: '10:00 AM', date: 'Tomorrow', room: 'Room 210' }
-]);
+// Use backend upcoming classes data
+const upcomingClasses = computed(() => {
+  return props.upcoming_classes || [];
+});
 
-// Recent attendance history
-const recentAttendance = ref([
-  { class: 'Computer Science 101', date: '2024-10-01', status: 'present' },
-  { class: 'Mathematics 201', date: '2024-10-01', status: 'present' },
-  { class: 'Physics 101', date: '2024-09-30', status: 'excused' },
-  { class: 'English 101', date: '2024-09-30', status: 'absent' },
-  { class: 'Computer Science 101', date: '2024-09-29', status: 'present' }
-]);
+// Recent attendance from backend
+const recentAttendance = computed(() => props.recent_attendance ?? []);
+
+// Student's enrolled classes for selection
+const enrolledClasses = computed(() => {
+  return props.classes || [];
+});
 
 const openQRScanner = () => {
-  console.log("Opening QR Scanner for attendance check-in...");
-  // Here you would implement QR scanner functionality
+  if (enrolledClasses.value.length === 0) {
+    alert('You are not enrolled in any classes.');
+    return;
+  }
+  showQRDialog.value = true;
+  camera.value = 'auto';
+  qrError.value = '';
+};
+
+// Watch for dialog close to turn off camera
+watch(showQRDialog, (newVal) => {
+  if (!newVal) {
+    camera.value = 'off';
+    selectedClass.value = '';
+    qrError.value = '';
+  }
+});
+
+const onCameraError = (error: any) => {
+  console.error('Camera error:', error);
+  qrError.value = 'Unable to access camera. Please check permissions.';
+};
+
+const onQRDetect = (detectedCodes: any[]) => {
+  if (detectedCodes.length > 0) {
+    const qrData = detectedCodes[0].rawValue;
+    onQRScan(qrData);
+  }
+};
+
+const openClassIDEntry = () => {
+  if (enrolledClasses.value.length === 0) {
+    alert('You are not enrolled in any classes.');
+    return;
+  }
+  showClassIDDialog.value = true;
+};
+
+const onQRScan = async (qrData: string) => {
+  if (!selectedClass.value) {
+    alert('Please select a class first.');
+    return;
+  }
+
+  isProcessing.value = true;
+  
+  try {
+    // Get CSRF token from meta tag
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+    
+    console.log('CSRF Token:', csrfToken ? 'Found' : 'Not found');
+    console.log('QR Data:', qrData);
+    console.log('Class ID:', selectedClass.value);
+    
+    if (!csrfToken) {
+      throw new Error('CSRF token not found. Please refresh the page.');
+    }
+
+    const response = await fetch('/student/quick-checkin', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-CSRF-TOKEN': csrfToken,
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      credentials: 'same-origin',
+      body: JSON.stringify({
+        method: 'qr',
+        qr_code: qrData,
+        class_id: selectedClass.value
+      })
+    });
+
+    console.log('Response status:', response.status);
+
+    // Check if response is ok
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Failed to mark attendance' }));
+      console.error('Error response:', errorData);
+      throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log('Success response:', data);
+    
+    if (data.success) {
+      alert(`Success! ${data.message}`);
+      showQRDialog.value = false;
+      selectedClass.value = '';
+      // Refresh page to show updated attendance
+      router.reload();
+    } else {
+      alert(data.message || 'Failed to mark attendance');
+    }
+  } catch (error: any) {
+    console.error('Check-in error:', error);
+    alert(error.message || 'Failed to process check-in. Please try again.');
+  } finally {
+    isProcessing.value = false;
+  }
+};
+
+const submitClassID = async () => {
+  if (!selectedClass.value) {
+    alert('Please select a class.');
+    return;
+  }
+  
+  if (!manualClassID.value) {
+    alert('Please enter a session ID.');
+    return;
+  }
+
+  isProcessing.value = true;
+  
+  try {
+    // Get CSRF token from meta tag
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+    
+    if (!csrfToken) {
+      throw new Error('CSRF token not found');
+    }
+
+    const response = await fetch('/student/quick-checkin', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-CSRF-TOKEN': csrfToken,
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      credentials: 'same-origin',
+      body: JSON.stringify({
+        method: 'manual',
+        qr_code: manualClassID.value,
+        class_id: selectedClass.value
+      })
+    });
+
+    // Check if response is ok
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Failed to mark attendance' }));
+      throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    
+    if (data.success) {
+      alert(`Success! ${data.message}`);
+      showClassIDDialog.value = false;
+      selectedClass.value = '';
+      manualClassID.value = '';
+      // Refresh page to show updated attendance
+      router.reload();
+    } else {
+      alert(data.message || 'Failed to mark attendance');
+    }
+  } catch (error: any) {
+    console.error('Check-in error:', error);
+    alert(error.message || 'Failed to process check-in. Please try again.');
+  } finally {
+    isProcessing.value = false;
+  }
 };
 
 const getStatusColor = (status: string) => {
@@ -76,8 +286,12 @@ const getStatusIcon = (status: string) => {
     <div class="flex h-full flex-1 flex-col gap-6 p-6">
       <!-- Greeting -->
       <div>
-        <h1 class="text-3xl font-bold">Welcome back, <span class="text-blue-600">{{ user.name }}</span> 🎓</h1>
-        <p class="text-muted-foreground">Here's your attendance overview and upcoming classes</p>
+        <h1 class="text-3xl font-bold">Welcome back, <span class="text-blue-600">{{ props.student?.name || user.name }}</span> 🎓</h1>
+        <p class="text-muted-foreground">
+          Student ID: {{ props.student?.student_id || 'Not available' }} • 
+          Course: {{ props.student?.course || 'Not specified' }}
+        </p>
+        <p class="text-sm text-muted-foreground mt-1">Here's your attendance overview and upcoming classes</p>
       </div>
 
       <!-- Quick Stats Cards -->
@@ -90,7 +304,7 @@ const getStatusIcon = (status: string) => {
           </CardHeader>
           <CardContent>
             <div class="text-2xl font-bold text-green-600">{{ attendanceStats.presentPercentage }}%</div>
-            <p class="text-xs text-muted-foreground">{{ attendanceStats.presentCount }} of {{ attendanceStats.totalClasses }} classes</p>
+            <p class="text-xs text-muted-foreground">{{ attendanceStats.presentCount }} of {{ attendanceStats.totalClasses }} sessions</p>
           </CardContent>
         </Card>
 
@@ -102,7 +316,7 @@ const getStatusIcon = (status: string) => {
           </CardHeader>
           <CardContent>
             <div class="text-2xl font-bold text-red-600">{{ attendanceStats.absentPercentage }}%</div>
-            <p class="text-xs text-muted-foreground">{{ attendanceStats.absentCount }} of {{ attendanceStats.totalClasses }} classes</p>
+            <p class="text-xs text-muted-foreground">{{ attendanceStats.absentCount }} of {{ attendanceStats.totalClasses }} sessions</p>
           </CardContent>
         </Card>
 
@@ -114,7 +328,7 @@ const getStatusIcon = (status: string) => {
           </CardHeader>
           <CardContent>
             <div class="text-2xl font-bold text-yellow-600">{{ attendanceStats.excusedPercentage }}%</div>
-            <p class="text-xs text-muted-foreground">{{ attendanceStats.excusedCount }} of {{ attendanceStats.totalClasses }} classes</p>
+            <p class="text-xs text-muted-foreground">{{ attendanceStats.excusedCount }} of {{ attendanceStats.totalClasses }} sessions</p>
           </CardContent>
         </Card>
       </div>
@@ -134,9 +348,9 @@ const getStatusIcon = (status: string) => {
             <div class="text-center text-sm text-muted-foreground">
               or
             </div>
-            <Button variant="outline" class="w-full" size="lg">
+            <Button @click="openClassIDEntry" variant="outline" class="w-full" size="lg">
               <Camera class="mr-2 h-5 w-5" />
-              Enter Class ID
+              Enter Session ID
             </Button>
           </CardContent>
         </Card>
@@ -149,16 +363,22 @@ const getStatusIcon = (status: string) => {
           </CardHeader>
           <CardContent>
             <div class="space-y-3">
-              <div v-for="classItem in upcomingClasses.slice(0, 4)" :key="classItem.id" 
-                   class="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors">
-                <div class="space-y-1">
-                  <p class="font-medium">{{ classItem.name }}</p>
-                  <p class="text-sm text-muted-foreground">{{ classItem.room }}</p>
+              <div v-if="upcomingClasses.length > 0">
+                <div v-for="classItem in upcomingClasses.slice(0, 4)" :key="classItem.class_name" 
+                     class="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors">
+                  <div class="space-y-1">
+                    <p class="font-medium">{{ classItem.class_name }}</p>
+                    <p class="text-sm text-muted-foreground">{{ classItem.teacher }}</p>
+                    <p class="text-sm text-muted-foreground">Room {{ classItem.room }}</p>
+                  </div>
+                  <div class="text-right">
+                    <p class="text-sm font-medium">{{ classItem.time }}</p>
+                    <p class="text-xs text-muted-foreground">{{ classItem.date }}</p>
+                  </div>
                 </div>
-                <div class="text-right">
-                  <p class="text-sm font-medium">{{ classItem.time }}</p>
-                  <p class="text-xs text-muted-foreground">{{ classItem.date }}</p>
-                </div>
+              </div>
+              <div v-else class="text-center py-6 text-muted-foreground">
+                <p>No upcoming classes scheduled</p>
               </div>
             </div>
           </CardContent>
@@ -169,7 +389,7 @@ const getStatusIcon = (status: string) => {
       <Card>
         <CardHeader>
           <CardTitle>Recent Attendance</CardTitle>
-          <CardDescription>Your attendance history for the past week</CardDescription>
+          <CardDescription>Your recent attendance history</CardDescription>
         </CardHeader>
         <CardContent>
           <div class="space-y-3">
@@ -178,8 +398,8 @@ const getStatusIcon = (status: string) => {
               <div class="flex items-center space-x-3">
                 <div :class="['w-2 h-2 rounded-full', getStatusColor(record.status)]"></div>
                 <div>
-                  <p class="font-medium">{{ record.class }}</p>
-                  <p class="text-sm text-muted-foreground">{{ record.date }}</p>
+                  <p class="font-medium">{{ record.class_name }}</p>
+                  <p class="text-sm text-muted-foreground">{{ record.session_date }}</p>
                 </div>
               </div>
               <Badge :variant="record.status === 'present' ? 'default' : record.status === 'excused' ? 'secondary' : 'destructive'">
@@ -191,5 +411,108 @@ const getStatusIcon = (status: string) => {
         </CardContent>
       </Card>
     </div>
+
+    <!-- QR Scanner Dialog -->
+    <Dialog v-model:open="showQRDialog">
+      <DialogContent class="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Scan QR Code for Attendance</DialogTitle>
+          <DialogDescription>
+            First select your class, then scan the QR code displayed by your teacher
+          </DialogDescription>
+        </DialogHeader>
+        <div class="space-y-4">
+          <div class="space-y-2">
+            <Label for="qr-class">Select Class</Label>
+            <Select v-model="selectedClass">
+              <SelectTrigger id="qr-class">
+                <SelectValue placeholder="Choose a class" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="cls in enrolledClasses" :key="cls.id" :value="String(cls.id)">
+                  {{ cls.name }}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          
+          <div v-if="selectedClass" class="border rounded-lg overflow-hidden bg-muted/50">
+            <p class="text-sm text-center p-2">Point your camera at the QR code</p>
+            <div class="relative aspect-square bg-black">
+              <QrcodeStream 
+                v-if="camera === 'auto'"
+                :camera="camera"
+                @detect="onQRDetect"
+                @error="onCameraError"
+                class="w-full h-full object-cover"
+              />
+              <div v-if="qrError" class="absolute inset-0 flex items-center justify-center bg-black/50 text-white text-center p-4">
+                <div>
+                  <AlertCircle class="h-8 w-8 mx-auto mb-2" />
+                  <p class="text-sm">{{ qrError }}</p>
+                </div>
+              </div>
+              <div v-if="isProcessing" class="absolute inset-0 flex items-center justify-center bg-black/50 text-white">
+                <div class="text-center">
+                  <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-2"></div>
+                  <p class="text-sm">Processing...</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div v-else class="text-center py-8 text-muted-foreground">
+            <QrCode class="h-12 w-12 mx-auto mb-2 opacity-50" />
+            <p>Select a class to start scanning</p>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+
+    <!-- Manual Class ID Dialog -->
+    <Dialog v-model:open="showClassIDDialog">
+      <DialogContent class="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Enter Session ID</DialogTitle>
+          <DialogDescription>
+            Select your class and enter the session ID provided by your teacher
+          </DialogDescription>
+        </DialogHeader>
+        <div class="space-y-4">
+          <div class="space-y-2">
+            <Label for="manual-class">Select Class</Label>
+            <Select v-model="selectedClass">
+              <SelectTrigger id="manual-class">
+                <SelectValue placeholder="Choose a class" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="cls in enrolledClasses" :key="cls.id" :value="String(cls.id)">
+                  {{ cls.name }}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          
+          <div class="space-y-2">
+            <Label for="session-id">Session ID</Label>
+            <Input 
+              id="session-id"
+              v-model="manualClassID" 
+              type="text" 
+              placeholder="Enter session ID"
+              :disabled="!selectedClass || isProcessing"
+            />
+          </div>
+          
+          <Button 
+            @click="submitClassID" 
+            class="w-full"
+            :disabled="!selectedClass || !manualClassID || isProcessing"
+          >
+            {{ isProcessing ? 'Processing...' : 'Submit Attendance' }}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   </AppLayout>
 </template>

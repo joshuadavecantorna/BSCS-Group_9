@@ -97,10 +97,40 @@ const createAttendanceSession = () => {
 };
 
 // Start quick attendance session
-const startQuickSession = (classId: number) => {
-  createSessionForm.class_id = classId.toString();
-  createSessionForm.session_name = `Quick Session - ${new Date().toLocaleDateString()}`;
-  createAttendanceSession();
+const startQuickSession = async (classId: number) => {
+  try {
+    createSessionForm.processing = true;
+    
+    const response = await fetch('/teacher/attendance/quick-start', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: JSON.stringify({ class_id: classId })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Failed to start session' }));
+      throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    
+    if (data.success) {
+      // Redirect to the session page with QR scanner
+      window.location.href = `/teacher/attendance/session/${data.session.id}`;
+    } else {
+      throw new Error(data.message || 'Failed to start session');
+    }
+  } catch (error) {
+    console.error('Error starting quick session:', error);
+    alert(error instanceof Error ? error.message : 'Failed to start session');
+  } finally {
+    createSessionForm.processing = false;
+  }
 };
 
 // Open session management
@@ -174,7 +204,7 @@ const updateAttendance = () => {
         </Card>
       </div>
 
-      <!-- Session Management -->
+      <!-- Classes Section -->
       <Card>
         <CardHeader>
           <div class="flex items-center justify-between">

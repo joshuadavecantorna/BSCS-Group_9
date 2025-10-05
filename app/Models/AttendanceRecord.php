@@ -11,18 +11,16 @@ class AttendanceRecord extends Model
     use HasFactory;
 
     protected $fillable = [
-        'session_id',
+        'attendance_session_id',
         'student_id',
         'status',
-        'check_in_time',
-        'check_out_time',
-        'method',
+        'marked_at',
+        'marked_by',
         'notes'
     ];
 
     protected $casts = [
-        'check_in_time' => 'datetime',
-        'check_out_time' => 'datetime',
+        'marked_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime'
     ];

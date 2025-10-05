@@ -21,10 +21,10 @@ class RedirectBasedOnRole
             return $next($request);
         }
         
+        $path = $request->path();
+        
         // Check if user is a teacher accessing admin routes
         if ($user->isTeacher()) {
-            $path = $request->path();
-            
             // Redirect teachers from admin routes to teacher routes
             if ($path === 'dashboard') {
                 return redirect()->route('teacher.dashboard');
@@ -34,6 +34,17 @@ class RedirectBasedOnRole
             }
             if ($path === 'reports') {
                 return redirect()->route('teacher.reports');
+            }
+        }
+        
+        // Check if user is a student accessing admin routes
+        if ($user->role === 'student') {
+            // Redirect students from admin routes to student routes
+            if ($path === 'dashboard') {
+                return redirect()->route('student.dashboard');
+            }
+            if ($path === 'files') {
+                return redirect()->route('student.classes');
             }
         }
         

@@ -2,7 +2,7 @@
 import AppLayout from '@/layouts/AppLayout.vue';
 import { dashboard } from '@/routes';
 import { type BreadcrumbItem } from '@/types';
-import { Head } from '@inertiajs/vue3';
+import { Head, router } from '@inertiajs/vue3';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,16 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { CheckCircle, XCircle, AlertCircle, Calendar, Filter, Search } from 'lucide-vue-next';
 import { ref, computed } from 'vue';
+
+// Props from StudentController
+interface Props {
+  student?: any;
+  classes?: any[];
+  records?: any;
+  selected_class_id?: string | number;
+}
+
+const props = defineProps<Props>();
 
 // Breadcrumbs
 const breadcrumbs: BreadcrumbItem[] = [
@@ -19,133 +29,44 @@ const breadcrumbs: BreadcrumbItem[] = [
 
 // Filter states
 const filters = ref({
-  class: '',
+  class: props.selected_class_id?.toString() || '',
+  search: '',
   status: '',
-  startDate: '',
-  endDate: '',
-  search: ''
+  startDate: ''
 });
 
-// Attendance records
-const attendanceRecords = ref([
-  {
-    id: 1,
-    date: '2024-10-01',
-    class: 'Computer Science 101',
-    classCode: 'CS101',
-    instructor: 'Prof. John Smith',
-    status: 'present',
-    checkInTime: '09:02 AM',
-    checkOutTime: '09:58 AM',
-    notes: ''
-  },
-  {
-    id: 2,
-    date: '2024-10-01',
-    class: 'Mathematics 201',
-    classCode: 'MATH201',
-    instructor: 'Prof. Jane Doe',
-    status: 'present',
-    checkInTime: '11:05 AM',
-    checkOutTime: '12:28 PM',
-    notes: ''
-  },
-  {
-    id: 3,
-    date: '2024-09-30',
-    class: 'Physics 101',
-    classCode: 'PHYS101',
-    instructor: 'Dr. Michael Johnson',
-    status: 'excused',
-    checkInTime: '',
-    checkOutTime: '',
-    notes: 'Medical appointment - excuse approved'
-  },
-  {
-    id: 4,
-    date: '2024-09-30',
-    class: 'English 101',
-    classCode: 'ENG101',
-    instructor: 'Prof. Sarah Wilson',
-    status: 'absent',
-    checkInTime: '',
-    checkOutTime: '',
-    notes: 'No excuse provided'
-  },
-  {
-    id: 5,
-    date: '2024-09-29',
-    class: 'Computer Science 101',
-    classCode: 'CS101',
-    instructor: 'Prof. John Smith',
-    status: 'present',
-    checkInTime: '09:00 AM',
-    checkOutTime: '09:55 AM',
-    notes: ''
-  },
-  {
-    id: 6,
-    date: '2024-09-29',
-    class: 'Mathematics 201',
-    classCode: 'MATH201',
-    instructor: 'Prof. Jane Doe',
-    status: 'present',
-    checkInTime: '11:03 AM',
-    checkOutTime: '12:30 PM',
-    notes: ''
-  },
-  {
-    id: 7,
-    date: '2024-09-27',
-    class: 'Physics 101',
-    classCode: 'PHYS101',
-    instructor: 'Dr. Michael Johnson',
-    status: 'absent',
-    checkInTime: '',
-    checkOutTime: '',
-    notes: 'Transportation issue'
-  },
-  {
-    id: 8,
-    date: '2024-09-27',
-    class: 'English 101',
-    classCode: 'ENG101',
-    instructor: 'Prof. Sarah Wilson',
-    status: 'present',
-    checkInTime: '10:02 AM',
-    checkOutTime: '10:58 AM',
-    notes: ''
-  }
-]);
+// Use backend data
+const attendanceRecords = computed(() => {
+  return props.records?.data || [];
+});
 
-// Available classes for filtering
-const classes = ref([
-  { value: 'CS101', label: 'Computer Science 101' },
-  { value: 'MATH201', label: 'Mathematics 201' },
-  { value: 'PHYS101', label: 'Physics 101' },
-  { value: 'ENG101', label: 'English 101' }
-]);
-
-// Filtered records
+// Basic client-side filtering for search and class
 const filteredRecords = computed(() => {
-  return attendanceRecords.value.filter(record => {
-    const matchesClass = !filters.value.class || record.classCode === filters.value.class;
-    const matchesStatus = !filters.value.status || record.status === filters.value.status;
-    const matchesSearch = !filters.value.search || 
-      record.class.toLowerCase().includes(filters.value.search.toLowerCase()) ||
-      record.instructor.toLowerCase().includes(filters.value.search.toLowerCase());
-    
-    // Date filtering logic would go here if implemented
-    return matchesClass && matchesStatus && matchesSearch;
+  const search = (filters.value.search || '').toLowerCase();
+  const classId = filters.value.class;
+  return attendanceRecords.value.filter((r: any) => {
+    const matchesClass = !classId || String(r.class_id) === String(classId);
+    const matchesSearch = !search || (r.class_name?.toLowerCase().includes(search));
+    return matchesClass && matchesSearch;
   });
 });
 
+// Filter function
+const applyFilters = () => {
+  router.get('/student/attendance-history', {
+    class_id: filters.value.class
+  }, {
+    preserveState: true,
+    preserveScroll: true
+  });
+};
+
 // Summary statistics
 const summary = computed(() => {
-  const total = filteredRecords.value.length;
-  const present = filteredRecords.value.filter(r => r.status === 'present').length;
-  const absent = filteredRecords.value.filter(r => r.status === 'absent').length;
-  const excused = filteredRecords.value.filter(r => r.status === 'excused').length;
+  const total = attendanceRecords.value.length;
+  const present = attendanceRecords.value.filter((r: any) => r.status === 'present').length;
+  const absent = attendanceRecords.value.filter((r: any) => r.status === 'absent').length;
+  const excused = attendanceRecords.value.filter((r: any) => r.status === 'excused').length;
   
   return {
     total,
@@ -177,11 +98,11 @@ const getStatusColor = (status: string) => {
 const clearFilters = () => {
   filters.value = {
     class: '',
+    search: '',
     status: '',
-    startDate: '',
-    endDate: '',
-    search: ''
+    startDate: ''
   };
+  applyFilters();
 };
 </script>
 
@@ -337,20 +258,16 @@ const clearFilters = () => {
                              ]" />
                   
                   <div>
-                    <div class="font-medium">{{ record.class }}</div>
-                    <div class="text-sm text-muted-foreground">{{ record.instructor }}</div>
+                    <div class="font-medium">{{ record.class_name }}</div>
+                    <div class="text-sm text-muted-foreground">Session {{ record.session_date }}</div>
                   </div>
                 </div>
 
                 <div class="flex items-center space-x-4">
                   <!-- Date -->
                   <div class="text-right">
-                    <div class="text-sm font-medium">{{ new Date(record.date).toLocaleDateString() }}</div>
-                    <div class="text-xs text-muted-foreground">
-                      {{ record.checkInTime && record.checkOutTime ? 
-                         `${record.checkInTime} - ${record.checkOutTime}` : 
-                         'No check-in' }}
-                    </div>
+                    <div class="text-sm font-medium">{{ record.session_date }}</div>
+                    <div class="text-xs text-muted-foreground">Start: {{ record.start_time?.slice(11,16) || '—' }}</div>
                   </div>
 
                   <!-- Status Badge -->

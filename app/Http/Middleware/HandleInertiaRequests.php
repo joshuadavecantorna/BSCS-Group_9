@@ -48,8 +48,13 @@ class HandleInertiaRequests extends Middleware
                     'id' => $request->user()->id,
                     'name' => $request->user()->name,
                     'email' => $request->user()->email,
+                    // Explicit role flags for client-side navigation
+                    'role' => $request->user()->role,
                     'isTeacher' => $request->user()->isTeacher(),
+                    'isStudent' => method_exists($request->user(), 'isStudent') ? $request->user()->isStudent() : ($request->user()->role === 'student'),
+                    // Lightweight related models when needed in layout
                     'teacher' => $request->user()->teacher,
+                    'student' => method_exists($request->user(), 'student') ? $request->user()->student : null,
                 ] : null,
             ],
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',

@@ -10,6 +10,7 @@ class Student extends Model
     use HasFactory;
 
     protected $fillable = [
+        'user_id',
         'student_id',
         'name',
         'email',
@@ -25,6 +26,11 @@ class Student extends Model
         'qr_data' => 'array',
         'is_active' => 'boolean'
     ];
+
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
 
     public function attendance()
     {

@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import AppLayout from '@/layouts/AppLayout.vue';
 import { Head } from '@inertiajs/vue3';
+import { ref } from 'vue';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import FileUploadModal from '@/components/teacher/FileUploadModal.vue';
 
 interface Props {
   teacher: {
@@ -14,6 +16,12 @@ interface Props {
     position: string;
     email: string;
   };
+  classes?: Array<{
+    id: number;
+    name: string;
+    course: string;
+    section: string;
+  }>;
 }
 
 const props = defineProps<Props>();
@@ -22,6 +30,19 @@ const breadcrumbs = [
   { title: 'Teacher Dashboard', href: '/teacher/dashboard' },
   { title: 'Files', href: '/teacher/files' }
 ];
+
+// File upload modal state
+const showUploadModal = ref(false);
+
+const openUploadModal = () => {
+  showUploadModal.value = true;
+};
+
+const handleFileUploaded = (response: any) => {
+  console.log('File uploaded successfully:', response);
+  showUploadModal.value = false;
+  // Optionally reload the page or update the file list
+};
 </script>
 
 <template>
@@ -38,7 +59,7 @@ const breadcrumbs = [
             Upload and manage files for your classes
           </p>
         </div>
-        <Button @click="$inertia.post('/teacher/files/upload')">
+        <Button @click="openUploadModal">
           <span class="mr-2">📤</span>
           Upload File
         </Button>
@@ -46,7 +67,7 @@ const breadcrumbs = [
 
       <!-- File Upload Options -->
       <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        <Card class="hover:shadow-md transition-shadow cursor-pointer" @click="$inertia.visit('/teacher/files/upload')">
+        <Card class="hover:shadow-md transition-shadow cursor-pointer" @click="openUploadModal">
           <CardHeader class="text-center">
             <div class="mx-auto mb-4 text-6xl">📄</div>
             <CardTitle>Upload Documents</CardTitle>
@@ -57,7 +78,7 @@ const breadcrumbs = [
           </CardContent>
         </Card>
 
-        <Card class="hover:shadow-md transition-shadow cursor-pointer" @click="$inertia.visit('/teacher/files/images')">
+        <Card class="hover:shadow-md transition-shadow cursor-pointer" @click="openUploadModal">
           <CardHeader class="text-center">
             <div class="mx-auto mb-4 text-6xl">🖼️</div>
             <CardTitle>Upload Images</CardTitle>
@@ -68,7 +89,7 @@ const breadcrumbs = [
           </CardContent>
         </Card>
 
-        <Card class="hover:shadow-md transition-shadow cursor-pointer" @click="$inertia.visit('/teacher/files/videos')">
+        <Card class="hover:shadow-md transition-shadow cursor-pointer" @click="openUploadModal">
           <CardHeader class="text-center">
             <div class="mx-auto mb-4 text-6xl">🎥</div>
             <CardTitle>Upload Videos</CardTitle>
@@ -234,5 +255,12 @@ const breadcrumbs = [
       </Card>
 
     </div>
+
+    <!-- File Upload Modal -->
+    <FileUploadModal 
+      v-model:open="showUploadModal" 
+      :classes="props.classes || []"
+      @file-uploaded="handleFileUploaded"
+    />
   </AppLayout>
 </template>

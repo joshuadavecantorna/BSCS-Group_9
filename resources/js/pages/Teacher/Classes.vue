@@ -261,9 +261,9 @@ const mockClassData = (classItem: ClassItem) => ({
                       <Users class="h-4 w-4 mr-1" />
                       Students
                     </Button>
-                    <Button size="sm" variant="outline" @click="$inertia.visit('/teacher/attendance')">
+                    <Button size="sm" variant="outline" @click="$inertia.visit(`/teacher/attendance/direct/${classItem.id}`)">
                       <Clock class="h-4 w-4 mr-1" />
-                      Attendance
+                      Take Attendance
                     </Button>
                     <Button size="sm" variant="outline" @click="openEditDialog(classItem)">
                       <Edit class="h-4 w-4" />

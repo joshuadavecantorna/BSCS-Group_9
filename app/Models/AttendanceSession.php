@@ -18,22 +18,17 @@ class AttendanceSession extends Model
         'session_date',
         'start_time',
         'end_time',
-        'attendance_method',
         'status',
-        'total_students',
-        'present_count',
-        'absent_count',
-        'excused_count'
+        'notes',
+        'qr_code',
+        'allow_late_attendance',
+        'late_minutes_allowed'
     ];
 
     protected $casts = [
         'session_date' => 'date',
-        'start_time' => 'datetime',
-        'end_time' => 'datetime',
-        'total_students' => 'integer',
-        'present_count' => 'integer',
-        'absent_count' => 'integer',
-        'excused_count' => 'integer',
+        'allow_late_attendance' => 'boolean',
+        'late_minutes_allowed' => 'integer',
         'created_at' => 'datetime',
         'updated_at' => 'datetime'
     ];
@@ -51,7 +46,7 @@ class AttendanceSession extends Model
 
     public function attendanceRecords(): HasMany
     {
-        return $this->hasMany(AttendanceRecord::class, 'session_id');
+        return $this->hasMany(AttendanceRecord::class, 'attendance_session_id');
     }
 
     // Scopes

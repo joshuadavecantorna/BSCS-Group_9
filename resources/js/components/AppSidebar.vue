@@ -13,9 +13,8 @@ const page = usePage();
 const user = computed(() => page.props.auth?.user);
 
 // Check if user is a teacher
-const isTeacher = computed(() => {
-  return user.value?.isTeacher === true;
-});
+const isTeacher = computed(() => user.value?.isTeacher === true);
+const isStudent = computed(() => user.value?.role === 'student' || user.value?.isStudent === true);
 
 // Dynamic navigation based on user role
 const mainNavItems = computed((): NavItem[] => {
@@ -48,8 +47,32 @@ const mainNavItems = computed((): NavItem[] => {
         icon: FileText,
       },
     ];
+  } else if (isStudent.value) {
+    // Student Navigation
+    return [
+      {
+        title: 'Dashboard',
+        href: '/student/dashboard',
+        icon: LayoutGrid,
+      },
+      {
+        title: 'Classes',
+        href: '/student/classes',
+        icon: Users,
+      },
+      {
+        title: 'Attendance History',
+        href: '/student/attendance-history',
+        icon: ClipboardCheck,
+      },
+      {
+        title: 'Excuse Requests',
+        href: '/student/excuse-requests',
+        icon: FileText,
+      },
+    ];
   } else {
-    // Admin Navigation
+    // Admin Navigation (default)
     return [
       {
         title: 'Dashboard',
@@ -95,7 +118,7 @@ const footerNavItems: NavItem[] = [
       <SidebarMenu>
         <SidebarMenuItem>
           <SidebarMenuButton size="lg" as-child>
-            <Link :href="isTeacher ? '/teacher/dashboard' : '/dashboard'">
+            <Link :href="isTeacher ? '/teacher/dashboard' : (isStudent ? '/student/dashboard' : '/dashboard')">
               <AppLogo />
             </Link>
           </SidebarMenuButton>

@@ -117,6 +117,7 @@ class AdminController extends Controller
                 'name' => $validated['first_name'] . ' ' . $validated['last_name'],
                 'email' => $validated['email'],
                 'password' => bcrypt($validated['password']),
+                'role' => 'teacher',
                 'email_verified_at' => now(),
             ]);
 

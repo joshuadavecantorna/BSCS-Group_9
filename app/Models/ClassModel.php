@@ -9,13 +9,16 @@ class ClassModel extends Model
 {
     use HasFactory;
 
-    protected $table = 'classes';
+    protected $table = 'class_models';
 
     protected $fillable = [
         'name',
         'course',
+        'class_code',
         'section',
         'year',
+        'subject',
+        'description',
         'teacher_id',
         'schedule_time',
         'schedule_days',

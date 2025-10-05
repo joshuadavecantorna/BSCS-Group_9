@@ -11,7 +11,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Camera, RotateCw, X, CheckCircle, AlertCircle, QrCode, Upload, Zap, SwitchCamera, Flashlight, User, BookOpen, Calendar, Hash, GraduationCap } from 'lucide-vue-next';
+import { Camera, RotateCw, X, CheckCircle, AlertCircle, QrCode, Upload, Zap, SwitchCamera, Flashlight, User, BookOpen, Calendar, Hash, GraduationCap, FileUp } from 'lucide-vue-next';
+import { router } from '@inertiajs/vue3';
 
 // Types
 interface Student {
@@ -23,17 +24,19 @@ interface Student {
   section: string;
   avatar?: string | null;
   timestamp?: string;
+  needsLookup?: boolean; // Flag to indicate database lookup needed
 }
 
 interface ScanResult {
   student: Student;
   rawData: string;
-  format: 'json' | 'csv' | 'url' | 'keyvalue' | 'mock';
+  format: 'json' | 'csv' | 'url' | 'keyvalue' | 'mock' | 'file' | 'name-course';
 }
 
 // Props
 const props = defineProps<{
   show: boolean;
+  sessionId?: number | null;
 }>();
 
 // Emits
@@ -51,8 +54,17 @@ const lastScannedStudent = ref<Student | null>(null);
 const cameraStatus = ref<'loading' | 'ready' | 'error' | 'unsupported'>('loading');
 const debugInfo = ref<string>('');
 const manualQrInput = ref<string>('');
-const activeTab = ref<'camera' | 'manual'>('camera');
+const activeTab = ref<'camera' | 'manual' | 'upload'>('camera');
 const scanHistory = ref<ScanResult[]>([]);
+
+// File upload state
+const fileInput = ref<HTMLInputElement | null>(null);
+const uploadedFile = ref<File | null>(null);
+const uploadProgress = ref<number>(0);
+const uploadedStudents = ref<Student[]>([]);
+const uploadSuccess = ref<string>('');
+const uploadError = ref<string>('');
+const isUploading = ref<boolean>(false);
 
 // Manual form fields with validation
 const studentId = ref<string>('');
@@ -249,6 +261,25 @@ const onDetect = async (detectedCodes: any[]) => {
       studentData.year = normalizeYearLevel(studentData.year);
     }
 
+    // Handle database lookup if needed
+    if (studentData.needsLookup) {
+      try {
+        const lookupResult = await lookupStudentByName(studentData.name, studentData.course);
+        if (lookupResult) {
+          studentData = {
+            ...studentData,
+            student_id: lookupResult.student_id,
+            year: lookupResult.year,
+            section: lookupResult.section,
+            needsLookup: false
+          };
+        }
+      } catch (lookupErr) {
+        console.warn('Failed to lookup student:', lookupErr);
+        // Continue with partial data
+      }
+    }
+
     // Add timestamp and ensure all fields
     studentData = {
       ...studentData,
@@ -294,7 +325,8 @@ const normalizeYearLevel = (year: string): string => {
 
 // Validate student data structure
 const validateStudentData = (data: any): string | null => {
-  if (!data.student_id || typeof data.student_id !== 'string') {
+  // Allow empty student_id if this student needs database lookup
+  if (!data.needsLookup && (!data.student_id || typeof data.student_id !== 'string')) {
     return 'Invalid or missing student ID';
   }
   if (!data.name || typeof data.name !== 'string') {
@@ -310,17 +342,64 @@ const validateStudentData = (data: any): string | null => {
     return 'Invalid section format';
   }
   
-  // Validate year level if provided
-  if (data.year && !/^(1st|2nd|3rd|4th|5th)$/.test(normalizeYearLevel(data.year))) {
+  // Validate year level if provided (skip validation if empty and needs lookup)
+  if (data.year && data.year.trim() !== '' && !/^(1st|2nd|3rd|4th|5th)$/.test(normalizeYearLevel(data.year))) {
     return 'Invalid year level. Must be 1st, 2nd, 3rd, 4th, or 5th year';
   }
   
   return null;
 };
 
+// Lookup student by name in database
+const lookupStudentByName = async (name: string, course: string): Promise<Student | null> => {
+  try {
+    const response = await fetch('/api/students/lookup', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+      },
+      body: JSON.stringify({ name, course })
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      return data.student || null;
+    }
+  } catch (err) {
+    console.error('Student lookup failed:', err);
+  }
+  return null;
+};
+
 // Parse QR data from various formats
 const parseQRData = (rawData: string): { student: Student; format: ScanResult['format'] } | null => {
   const trimmedData = rawData.trim();
+
+  // Try specific CSV format: name,course, (like "EJ FAYE A. DULAY,BSCS,")
+  const specificCsvMatch = trimmedData.match(/^([^,]+),\s*(BSCS|BSIT|BSEE|BSME|BSBA|Bachelor[^,]*),?\s*$/i);
+  if (specificCsvMatch) {
+    const studentName = specificCsvMatch[1].trim();
+    const course = specificCsvMatch[2].trim();
+    
+    // Try to find student in database using name and course
+    // This would normally be an API call
+    console.log('Looking up student:', studentName, 'Course:', course);
+    
+    return {
+      student: {
+        id: `lookup-${Date.now()}`,
+        student_id: '', // Will be populated from database lookup
+        name: studentName,
+        year: '', // Will be populated from database lookup
+        course: course.includes('Bachelor') ? course : `Bachelor of Science in ${course === 'BSCS' ? 'Computer Science' : course}`,
+        section: '', // Will be populated from database lookup
+        timestamp: new Date().toISOString(),
+        needsLookup: true // Flag to indicate this needs database lookup
+      },
+      format: 'name-course'
+    };
+  }
 
   // Try CSV format: id,name,year,course,section
   const csvMatch = trimmedData.match(/^([^,]+),([^,]+),([^,]*),([^,]*),([^,]*)$/);
@@ -570,6 +649,164 @@ const switchToManual = () => {
   error.value = '';
 };
 
+// Switch to upload tab
+const switchToUpload = () => {
+  activeTab.value = 'upload';
+  camera.value = 'off';
+  error.value = '';
+  uploadError.value = '';
+};
+
+// Handle file upload
+const handleFileSelect = (event: Event) => {
+  const target = event.target as HTMLInputElement;
+  const file = target.files?.[0];
+  
+  if (file) {
+    uploadedFile.value = file;
+    uploadError.value = '';
+    uploadSuccess.value = '';
+    processUploadedFile(file);
+  }
+};
+
+// Process uploaded CSV file
+const processUploadedFile = async (file: File) => {
+  if (!file) return;
+
+  // Check file type
+  const allowedTypes = ['text/csv', 'application/vnd.ms-excel', 'text/plain'];
+  if (!allowedTypes.includes(file.type) && !file.name.endsWith('.csv')) {
+    uploadError.value = 'Please upload a CSV file';
+    return;
+  }
+
+  try {
+    isUploading.value = true;
+    uploadError.value = '';
+    uploadedStudents.value = [];
+    uploadProgress.value = 0;
+
+    const text = await file.text();
+    const lines = text.split('\n').filter(line => line.trim());
+
+    if (lines.length === 0) {
+      uploadError.value = 'File is empty';
+      isUploading.value = false;
+      return;
+    }
+
+    // Parse CSV
+    const students: Student[] = [];
+    let hasHeader = false;
+
+    // Check if first line is header
+    const firstLine = lines[0].toLowerCase();
+    if (firstLine.includes('student_id') || firstLine.includes('name') || firstLine.includes('id')) {
+      hasHeader = true;
+      lines.shift(); // Remove header
+    }
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+
+      // Split by comma, handling quoted values
+      const values = line.split(',').map(v => v.trim().replace(/^["']|["']$/g, ''));
+
+      if (values.length < 2) {
+        console.warn(`Skipping invalid line ${i + 1}: ${line}`);
+        continue;
+      }
+
+      // Parse student data from CSV
+      // Expected format: student_id, name, year, course, section
+      const student: Student = {
+        id: `upload-${Date.now()}-${i}`,
+        student_id: values[0] || '',
+        name: values[1] || '',
+        year: values[2] ? normalizeYearLevel(values[2]) : '',
+        course: values[3] || '',
+        section: values[4] || '',
+        timestamp: new Date().toISOString()
+      };
+
+      // Validate student data
+      if (student.student_id && student.name) {
+        students.push(student);
+      }
+
+      uploadProgress.value = Math.round(((i + 1) / lines.length) * 100);
+    }
+
+    if (students.length === 0) {
+      uploadError.value = 'No valid student data found in file';
+      isUploading.value = false;
+      return;
+    }
+
+    uploadedStudents.value = students;
+    uploadSuccess.value = `Successfully parsed ${students.length} student(s) from file`;
+    uploadProgress.value = 100;
+
+  } catch (err) {
+    console.error('File upload error:', err);
+    uploadError.value = `Failed to process file: ${err}`;
+  } finally {
+    isUploading.value = false;
+  }
+};
+
+// Save all uploaded students
+const saveUploadedStudents = async () => {
+  if (uploadedStudents.value.length === 0) {
+    uploadError.value = 'No students to save';
+    return;
+  }
+
+  try {
+    isLoading.value = true;
+    uploadError.value = '';
+
+    let savedCount = 0;
+    let errorCount = 0;
+
+    // Process each student
+    for (const student of uploadedStudents.value) {
+      const scanResult: ScanResult = {
+        student,
+        rawData: 'bulk_upload',
+        format: 'file'
+      };
+      
+      saveToHistory(scanResult);
+      emit('scanSuccess', student);
+      savedCount++;
+      
+      // Add small delay between emits
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    uploadSuccess.value = `Successfully added ${savedCount} student(s)`;
+    
+    // Clear upload state after short delay
+    setTimeout(() => {
+      uploadedStudents.value = [];
+      uploadedFile.value = null;
+      uploadProgress.value = 0;
+      if (fileInput.value) {
+        fileInput.value.value = '';
+      }
+    }, 2000);
+
+  } catch (err) {
+    console.error('Save students error:', err);
+    uploadError.value = 'Failed to save students. Please try again.';
+  } finally {
+    isLoading.value = false;
+  }
+};
+
 // Get camera label
 const getCameraLabel = () => {
   switch (camera.value) {
@@ -642,7 +879,7 @@ const getYearBadgeVariant = (year: string) => {
         <Tabs :value="activeTab" class="h-full flex flex-col">
           <div class="flex-shrink-0 border-b bg-muted/30">
             <div class="px-6">
-              <TabsList class="w-full grid grid-cols-2 bg-transparent h-auto p-0">
+              <TabsList class="w-full grid grid-cols-3 bg-transparent h-auto p-0">
                 <TabsTrigger 
                   value="camera" 
                   @click="switchToCamera"
@@ -661,6 +898,14 @@ const getYearBadgeVariant = (year: string) => {
                 >
                   <User class="h-4 w-4 mr-2" />
                   Manual Entry
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="upload" 
+                  @click="switchToUpload"
+                  class="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent py-3"
+                >
+                  <FileUp class="h-4 w-4 mr-2" />
+                  File Upload
                 </TabsTrigger>
               </TabsList>
             </div>
@@ -1159,6 +1404,159 @@ const getYearBadgeVariant = (year: string) => {
                   <p class="text-sm font-medium text-muted-foreground mb-1">No entries yet</p>
                   <p class="text-xs text-muted-foreground">
                     Add a student to get started
+                  </p>
+                </div>
+              </div>
+            </div>
+          </TabsContent>
+
+          <!-- File Upload Tab Content -->
+          <TabsContent value="upload" class="flex-1 m-0 p-6 overflow-auto data-[state=inactive]:hidden">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full">
+              <!-- Upload Section -->
+              <div class="space-y-6">
+                <Card>
+                  <CardHeader class="text-center pb-4">
+                    <div class="mx-auto mb-4 w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
+                      <FileUp class="h-8 w-8 text-primary" />
+                    </div>
+                    <CardTitle>Bulk Student Upload</CardTitle>
+                    <p class="text-sm text-muted-foreground">
+                      Upload a CSV file to import multiple students at once
+                    </p>
+                  </CardHeader>
+
+                  <CardContent class="space-y-4">
+                    <!-- File Input -->
+                    <div class="space-y-2">
+                      <Label>Select CSV File</Label>
+                      <div class="flex gap-2">
+                        <Input
+                          ref="fileInput"
+                          type="file"
+                          accept=".csv,text/csv,application/vnd.ms-excel"
+                          @change="handleFileSelect"
+                          :disabled="isLoading || isUploading"
+                          class="flex-1"
+                        />
+                      </div>
+                      <p class="text-xs text-muted-foreground">
+                        CSV format: student_id, name, year, course, section
+                      </p>
+                    </div>
+
+                    <!-- Upload Progress -->
+                    <div v-if="isUploading" class="space-y-2">
+                      <div class="flex items-center justify-between text-sm">
+                        <span class="text-muted-foreground">Processing file...</span>
+                        <span class="font-medium">{{ uploadProgress }}%</span>
+                      </div>
+                      <div class="w-full bg-muted rounded-full h-2 overflow-hidden">
+                        <div 
+                          class="bg-primary h-full transition-all duration-300 ease-out" 
+                          :style="{ width: `${uploadProgress}%` }"
+                        ></div>
+                      </div>
+                    </div>
+
+                    <!-- Success Message -->
+                    <Alert v-if="uploadSuccess" class="border-green-200 bg-green-50 text-green-900 dark:bg-green-950 dark:text-green-100">
+                      <CheckCircle class="h-4 w-4 text-green-600" />
+                      <AlertDescription>{{ uploadSuccess }}</AlertDescription>
+                    </Alert>
+
+                    <!-- Error Message -->
+                    <Alert v-if="uploadError" variant="destructive">
+                      <AlertCircle class="h-4 w-4" />
+                      <AlertDescription>{{ uploadError }}</AlertDescription>
+                    </Alert>
+
+                    <!-- CSV Format Guide -->
+                    <Card class="bg-muted/50">
+                      <CardHeader class="pb-3">
+                        <CardTitle class="text-sm">CSV Format Example</CardTitle>
+                      </CardHeader>
+                      <CardContent class="space-y-2">
+                        <div class="bg-background rounded-md p-3 font-mono text-xs overflow-x-auto">
+                          <div class="text-muted-foreground mb-2">// With header (recommended):</div>
+                          <div>student_id,name,year,course,section</div>
+                          <div>STU-001,John Doe,1st,BSCS,A</div>
+                          <div>STU-002,Jane Smith,2nd,BSIT,B</div>
+                          <div class="mt-3 text-muted-foreground">// Without header:</div>
+                          <div>STU-001,John Doe,1st,BSCS,A</div>
+                          <div>STU-002,Jane Smith,2nd,BSIT,B</div>
+                        </div>
+                        <p class="text-xs text-muted-foreground">
+                          • First two columns (student_id, name) are required<br>
+                          • Year must be: 1st, 2nd, 3rd, 4th, or 5th<br>
+                          • Course and section are optional
+                        </p>
+                      </CardContent>
+                    </Card>
+
+                    <!-- Save Button -->
+                    <Button 
+                      @click="saveUploadedStudents" 
+                      :disabled="uploadedStudents.length === 0 || isLoading"
+                      class="w-full"
+                      size="lg"
+                    >
+                      <CheckCircle class="mr-2 h-5 w-5" />
+                      {{ isLoading ? 'Saving...' : `Save ${uploadedStudents.length} Student(s)` }}
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <!-- Preview Section -->
+              <div class="space-y-6">
+                <Card v-if="uploadedStudents.length > 0">
+                  <CardHeader>
+                    <CardTitle class="text-sm flex items-center justify-between">
+                      <span>Parsed Students</span>
+                      <Badge variant="secondary">{{ uploadedStudents.length }}</Badge>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent class="p-0">
+                    <div class="max-h-[600px] overflow-y-auto">
+                      <div v-for="(student, index) in uploadedStudents" :key="student.id" 
+                           class="p-3 border-b last:border-b-0 hover:bg-muted/50 transition-colors">
+                        <div class="flex items-start gap-3">
+                          <div class="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                            <span class="text-xs font-semibold text-primary">{{ index + 1 }}</span>
+                          </div>
+                          <div class="flex-1 min-w-0 space-y-1">
+                            <p class="text-sm font-medium truncate">{{ student.name }}</p>
+                            <div class="flex flex-wrap items-center gap-2 text-xs">
+                              <Badge variant="outline" class="font-mono">
+                                {{ student.student_id }}
+                              </Badge>
+                              <Badge v-if="student.year" :variant="getYearBadgeVariant(student.year)">
+                                {{ student.year }}
+                              </Badge>
+                              <span v-if="student.course" class="text-muted-foreground">
+                                {{ student.course }}
+                              </span>
+                              <span v-if="student.section" class="text-muted-foreground">
+                                Sec {{ student.section }}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <!-- Empty State -->
+                <div v-if="uploadedStudents.length === 0" 
+                     class="text-center py-12 h-full flex flex-col items-center justify-center border-2 border-dashed rounded-xl border-muted">
+                  <div class="mx-auto mb-3 w-12 h-12 bg-muted rounded-full flex items-center justify-center">
+                    <FileUp class="h-6 w-6 text-muted-foreground" />
+                  </div>
+                  <p class="text-sm font-medium text-muted-foreground mb-1">No file uploaded</p>
+                  <p class="text-xs text-muted-foreground">
+                    Select a CSV file to import students
                   </p>
                 </div>
               </div>

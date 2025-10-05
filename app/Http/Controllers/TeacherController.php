@@ -12,6 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
 use Carbon\Carbon;
 
@@ -41,7 +42,7 @@ class TeacherController extends Controller
         $teacher = $this->getCurrentTeacher();
         
         // Get classes directly from database with simple query
-        $classes = DB::table('classes')
+        $classes = DB::table('class_models')
                      ->where('teacher_id', $teacher->id)
                      ->get()
                      ->map(function ($class) {
@@ -52,9 +53,7 @@ class TeacherController extends Controller
                              'section' => $class->section,
                              'year' => $class->year,
                              'schedule_time' => $class->schedule_time,
-                             'schedule_days' => is_string($class->schedule_days) 
-                                 ? json_decode($class->schedule_days, true) 
-                                 : $class->schedule_days,
+                             'schedule_days' => $class->schedule_days ?? [],
                              'student_count' => 25, // Mock data for now
                              'is_active' => $class->is_active
                          ];
@@ -73,35 +72,31 @@ class TeacherController extends Controller
     {
         $request->validate([
             'name' => 'required|string|max:255',
-            'class_code' => 'required|string|max:20|unique:classes',
-            'section' => 'required|string|max:10',
-            'subject' => 'required|string|max:255',
             'course' => 'required|string|max:100',
+            'section' => 'required|string|max:10',
+            'subject' => 'nullable|string|max:255',
             'year' => 'required|string|max:20',
             'description' => 'nullable|string',
-            'room' => 'nullable|string|max:100',
-            'schedule_time' => 'nullable|string',
+            'schedule_time' => 'nullable|date_format:H:i',
             'schedule_days' => 'nullable|array',
-            'academic_year' => 'required|string|max:10',
-            'semester' => 'required|string|max:20'
         ]);
 
         $teacher = $this->getCurrentTeacher();
 
+        // Generate unique class code
+        $classCode = $this->generateUniqueClassCode($request->course, $request->section, $request->year);
+
         $class = ClassModel::create([
             'name' => $request->name,
-            'class_code' => $request->class_code,
+            'course' => $request->course,
+            'class_code' => $classCode,
             'section' => $request->section,
             'subject' => $request->subject,
-            'course' => $request->course,
             'year' => $request->year,
             'description' => $request->description,
-            'room' => $request->room,
             'schedule_time' => $request->schedule_time,
             'schedule_days' => $request->schedule_days,
-            'academic_year' => $request->academic_year,
-            'semester' => $request->semester,
-            'teacher_id' => $teacher->user_id, // Assuming teacher_id links to user
+            'teacher_id' => $teacher->id,
             'is_active' => true
         ]);
 
@@ -119,20 +114,45 @@ class TeacherController extends Controller
     {
         $teacher = $this->getCurrentTeacher();
         
-        $class = ClassModel::with([
-            'students' => function ($query) {
-                $query->where('class_student.status', 'enrolled');
-            },
-            'attendanceSessions' => function ($query) {
-                $query->latest('session_date');
-            },
-            'classFiles'
-        ])->forTeacher($teacher->id)
-          ->findOrFail($id);
+        $class = ClassModel::forTeacher($teacher->id)->findOrFail($id);
+        
+        // Get students for this class
+        $students = DB::table('class_student')
+                     ->join('students', 'class_student.student_id', '=', 'students.id')
+                     ->where('class_student.class_model_id', $id)
+                     ->select(
+                         'students.id',
+                         'students.student_id',
+                         'students.name',
+                         'students.email',
+                         'students.year',
+                         'students.course',
+                         'students.section',
+                         'class_student.status',
+                         'class_student.enrolled_at'
+                     )
+                     ->get();
 
-        return response()->json([
-            'success' => true,
-            'class' => $class
+        // Get recent attendance sessions
+        $recentSessions = DB::table('attendance_sessions')
+                           ->where('class_id', $id)
+                           ->orderBy('session_date', 'desc')
+                           ->take(5)
+                           ->get();
+
+        return Inertia::render('Teacher/ClassDetails', [
+            'teacher' => $teacher,
+            'classData' => [
+                'id' => $class->id,
+                'name' => $class->name,
+                'course' => $class->course,
+                'section' => $class->section,
+                'year' => $class->year,
+                'schedule_time' => $class->schedule_time,
+                'schedule_days' => $class->schedule_days ?? []
+            ],
+            'students' => $students,
+            'recentSessions' => $recentSessions
         ]);
     }
 
@@ -143,14 +163,12 @@ class TeacherController extends Controller
     {
         $request->validate([
             'name' => 'required|string|max:255',
-            'class_code' => 'required|string|max:20|unique:classes,class_code,' . $id,
+            'course' => 'required|string|max:100|unique:class_models,course,' . $id,
             'section' => 'required|string|max:10',
-            'subject' => 'required|string|max:255',
-            'course' => 'required|string|max:100',
+            'subject' => 'nullable|string|max:255',
             'year' => 'required|string|max:20',
             'description' => 'nullable|string',
-            'room' => 'nullable|string|max:100',
-            'schedule_time' => 'nullable|string',
+            'schedule_time' => 'nullable|date_format:H:i',
             'schedule_days' => 'nullable|array'
         ]);
 
@@ -183,43 +201,111 @@ class TeacherController extends Controller
     }
 
     /**
-     * Add students to a class (bulk upload)
+     * Get students in a specific class
+     */
+    public function getClassStudents($classId)
+    {
+        $teacher = $this->getCurrentTeacher();
+        $class = ClassModel::forTeacher($teacher->id)->findOrFail($classId);
+
+                    $classStudents = DB::table('class_student')
+                              ->join('students', 'class_student.student_id', '=', 'students.id')
+                              ->where('class_student.class_model_id', $class->id)
+                              ->select(
+                                  'students.*',
+                                  'class_student.status',
+                                  'class_student.enrolled_at'
+                              )
+                              ->get();
+
+        return response()->json([
+            'success' => true,
+            'students' => $classStudents,
+            'class' => [
+                'id' => $class->id,
+                'name' => $class->name,
+                'course' => $class->course,
+                'section' => $class->section
+            ]
+        ]);
+    }
+
+    /**
+     * Add students to a class (single or bulk upload)
      */
     public function addStudentsToClass(Request $request, $classId)
     {
-        $request->validate([
-            'students' => 'required|array',
-            'students.*.student_id' => 'required|string|max:50',
-            'students.*.first_name' => 'required|string|max:100',
-            'students.*.last_name' => 'required|string|max:100',
-            'students.*.email' => 'nullable|email',
-            'students.*.phone' => 'nullable|string|max:20',
-            'students.*.year' => 'required|string|max:20',
-            'students.*.course' => 'required|string|max:100',
-            'students.*.section' => 'required|string|max:10'
-        ]);
+        // Check if this is a single student addition or bulk upload
+        if ($request->has('student_id') && !$request->has('students')) {
+            // Single student addition
+            $request->validate([
+                'student_id' => 'required|string|max:50',
+                'name' => 'required|string|max:200',
+                'email' => 'nullable|email',
+                'year' => 'required|string|max:20',
+                'course' => 'required|string|max:100',
+                'section' => 'required|string|max:10'
+            ]);
+
+            $students = [$request->all()];
+        } else {
+            // Bulk upload - support both formats
+            $request->validate([
+                'students' => 'required|array',
+            ]);
+
+            $students = [];
+            foreach ($request->students as $studentData) {
+                // All student data should have a name field
+                if (!isset($studentData['name'])) {
+                    // If first_name and last_name are provided, combine them
+                    if (isset($studentData['first_name']) && isset($studentData['last_name'])) {
+                        $studentData['name'] = trim($studentData['first_name'] . ' ' . $studentData['last_name']);
+                    } else {
+                        throw new \Exception('Student name is required');
+                    }
+                }
+                
+                $students[] = [
+                    'student_id' => $studentData['student_id'],
+                    'name' => $studentData['name'],
+                    'email' => $studentData['email'] ?? null,
+                    'year' => $studentData['year'],
+                    'course' => $studentData['course'],
+                    'section' => $studentData['section'],
+                    'is_active' => true
+                ];
+            }
+        }
 
         $teacher = $this->getCurrentTeacher();
         $class = ClassModel::forTeacher($teacher->id)->findOrFail($classId);
 
         $addedStudents = [];
 
-        foreach ($request->students as $studentData) {
+        foreach ($students as $studentData) {
             // Create or find student
             $student = Student::firstOrCreate(
                 ['student_id' => $studentData['student_id']],
                 $studentData
             );
 
-            // Attach to class if not already attached
-            $attached = $class->students()->syncWithoutDetaching([
-                $student->id => [
-                    'status' => 'enrolled',
-                    'enrolled_at' => now()
-                ]
-            ]);
+            // Attach to class using direct DB insertion since the relationship might not be properly set up
+            $exists = DB::table('class_student')
+                       ->where('class_model_id', $classId)
+                       ->where('student_id', $student->id)
+                       ->exists();
 
-            if (!empty($attached['attached'])) {
+            if (!$exists) {
+                DB::table('class_student')->insert([
+                    'class_model_id' => $classId,
+                    'student_id' => $student->id,
+                    'status' => 'enrolled',
+                    'enrolled_at' => now(),
+                    'created_at' => now(),
+                    'updated_at' => now()
+                ]);
+
                 $addedStudents[] = $student;
             }
         }
@@ -232,12 +318,38 @@ class TeacherController extends Controller
     }
 
     /**
+     * Remove student from class
+     */
+    public function removeStudentFromClass($classId, $studentId)
+    {
+        $teacher = $this->getCurrentTeacher();
+        $class = ClassModel::forTeacher($teacher->id)->findOrFail($classId);
+
+                $removed = DB::table('class_student')
+                    ->where('class_model_id', $classId)
+                    ->where('student_id', $studentId)
+                    ->delete();
+
+        if ($removed) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Student removed from class successfully'
+            ]);
+        }
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Student not found in class'
+        ], 404);
+    }
+
+    /**
      * Start attendance session
      */
     public function startAttendanceSession(Request $request)
     {
         $request->validate([
-            'class_id' => 'required|exists:classes,id',
+            'class_id' => 'required|exists:class_models,id',
             'session_name' => 'required|string|max:200',
             'session_date' => 'required|date',
             'start_time' => 'required|date_format:H:i',
@@ -246,26 +358,115 @@ class TeacherController extends Controller
 
         $teacher = $this->getCurrentTeacher();
         $class = ClassModel::forTeacher($teacher->id)->findOrFail($request->class_id);
-        $totalStudents = $class->student_count;
+        $totalStudents = DB::table('class_student')->where('class_model_id', $request->class_id)->count();
+
+        // Generate unique QR code for this session
+        $qrCode = 'session_' . uniqid() . '_' . time();
 
         $session = AttendanceSession::create([
             'class_id' => $request->class_id,
             'teacher_id' => $teacher->id,
             'session_name' => $request->session_name,
             'session_date' => $request->session_date,
-            'start_time' => Carbon::parse($request->session_date . ' ' . $request->start_time),
-            'attendance_method' => $request->attendance_method,
+            'start_time' => $request->start_time,
             'status' => 'active',
-            'total_students' => $totalStudents,
-            'present_count' => 0,
-            'absent_count' => 0,
-            'excused_count' => 0
+            'qr_code' => $qrCode
         ]);
 
         return response()->json([
             'success' => true,
             'message' => 'Attendance session started successfully',
             'session' => $session
+        ]);
+    }
+
+    /**
+     * Quick start attendance session for a class
+     */
+    public function quickStartSession(Request $request)
+    {
+        $request->validate([
+            'class_id' => 'required|exists:class_models,id'
+        ]);
+
+        $teacher = $this->getCurrentTeacher();
+        $class = ClassModel::forTeacher($teacher->id)->findOrFail($request->class_id);
+        $totalStudents = DB::table('class_student')->where('class_model_id', $request->class_id)->count();
+
+        // Generate unique QR code for this session
+        $qrCode = 'session_' . uniqid() . '_' . time();
+
+        // Create a quick session with current date/time
+        $session = AttendanceSession::create([
+            'class_id' => $request->class_id,
+            'teacher_id' => $teacher->id,
+            'session_name' => 'Quick Session - ' . now()->format('M d, Y H:i'),
+            'session_date' => now()->toDateString(),
+            'start_time' => now()->format('H:i:s'),
+            'status' => 'active',
+            'qr_code' => $qrCode
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Quick session started successfully',
+            'session' => $session,
+            'redirect' => route('teacher.attendance.session', $session->id)
+        ]);
+    }
+
+    /**
+     * Get attendance session details
+     */
+    public function getAttendanceSession($sessionId)
+    {
+        $teacher = $this->getCurrentTeacher();
+        
+        $session = DB::table('attendance_sessions')
+                    ->join('class_models', 'attendance_sessions.class_id', '=', 'class_models.id')
+                    ->where('attendance_sessions.id', $sessionId)
+                    ->where('class_models.teacher_id', $teacher->id)
+                    ->select(
+                        'attendance_sessions.*',
+                        'class_models.name as class_name',
+                        'class_models.course',
+                        'class_models.section'
+                    )
+                    ->first();
+
+        if (!$session) {
+            return response()->json(['error' => 'Session not found or access denied'], 404);
+        }
+
+        // Get attendance records for this session
+        $records = DB::table('attendance_records')
+                    ->join('students', 'attendance_records.student_id', '=', 'students.id')
+                    ->where('attendance_session_id', $sessionId)
+                    ->select(
+                        'attendance_records.*',
+                        'students.student_id',
+                        'students.name',
+                        'students.email'
+                    )
+                    ->get();
+
+                // Get all students in the class for comparison
+        $allStudents = DB::table('class_student')
+                        ->join('students', 'class_student.student_id', '=', 'students.id')
+                        ->where('class_student.class_model_id', $session->class_id)
+                        ->select(
+                            'students.id',
+                            'students.student_id',
+                            'students.name',
+                            'students.email'
+                        )
+                        ->get();
+
+        return response()->json([
+            'success' => true,
+            'session' => $session,
+            'attendance_records' => $records,
+            'all_students' => $allStudents
         ]);
     }
 
@@ -287,14 +488,14 @@ class TeacherController extends Controller
 
         $record = AttendanceRecord::updateOrCreate(
             [
-                'session_id' => $sessionId,
+                'attendance_session_id' => $sessionId,
                 'student_id' => $request->student_id
             ],
             [
                 'status' => $request->status,
                 'method' => $request->get('method'),
                 'notes' => $request->notes,
-                'check_in_time' => in_array($request->status, ['present', 'late']) ? now() : null
+                'marked_at' => in_array($request->status, ['present', 'late']) ? now() : null
             ]
         );
 
@@ -306,6 +507,153 @@ class TeacherController extends Controller
             'message' => 'Attendance marked successfully',
             'record' => $record
         ]);
+    }
+
+    /**
+     * Mark attendance via QR scan
+     */
+    public function markAttendanceByQR(Request $request, $sessionId)
+    {
+        $request->validate([
+            'qr_data' => 'required|string',
+        ]);
+
+        $teacher = $this->getCurrentTeacher();
+        $session = AttendanceSession::where('teacher_id', $teacher->id)
+                                   ->where('status', 'active')
+                                   ->findOrFail($sessionId);
+
+        // Parse QR data to get student information
+        try {
+            $qrData = json_decode($request->qr_data, true);
+            
+            // Handle different QR formats
+            if (isset($qrData['student_id'])) {
+                $studentId = $qrData['student_id'];
+            } elseif (isset($qrData['id'])) {
+                $studentId = $qrData['id'];
+            } else {
+                // Try to parse as CSV format: "name,course,"
+                $parts = explode(',', $request->qr_data);
+                if (count($parts) >= 2) {
+                    $name = trim($parts[0]);
+                    $course = trim($parts[1]);
+                    
+                    // Look up student by name and course
+                    $student = $this->findStudentByNameAndCourse($name, $course);
+                    if (!$student) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'Student not found: ' . $name
+                        ], 404);
+                    }
+                    $studentId = $student->student_id;
+                } else {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Invalid QR code format'
+                    ], 400);
+                }
+            }
+
+            // Find student in database
+            $student = Student::where('student_id', $studentId)->first();
+            if (!$student) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Student not found in database'
+                ], 404);
+            }
+
+            // Check if student is enrolled in this class
+            $isEnrolled = DB::table('class_student')
+                           ->where('class_model_id', $session->class_id)
+                           ->where('student_id', $student->id)
+                           ->exists();
+
+            if (!$isEnrolled) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Student is not enrolled in this class'
+                ], 403);
+            }
+
+            // Check if already marked
+            $existingRecord = AttendanceRecord::where('attendance_session_id', $sessionId)
+                                            ->where('student_id', $student->id)
+                                            ->first();
+
+            if ($existingRecord) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Student already marked as ' . $existingRecord->status,
+                    'student' => $student,
+                    'status' => $existingRecord->status
+                ]);
+            }
+
+            // Mark attendance as present
+            $record = AttendanceRecord::create([
+                'attendance_session_id' => $sessionId,
+                'student_id' => $student->id,
+                'status' => 'present',
+                'method' => 'qr_scan',
+                'marked_at' => now()
+            ]);
+
+            // Update session counts
+            $session->updateCounts();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Attendance marked successfully',
+                'student' => $student,
+                'status' => 'present',
+                'record' => $record
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error processing QR code: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Helper method to find student by name and course
+     */
+    private function findStudentByNameAndCourse($name, $course)
+    {
+        // Parse the input name to extract key parts
+        $nameParts = array_filter(explode(' ', strtolower(trim($name))), function($part) {
+            return !empty($part) && $part !== 'a.' && $part !== 'a'; // Filter out middle initial
+        });
+
+        // Search for student by matching key name parts and course
+        $query = DB::table('students')->where('course', 'LIKE', '%' . $course . '%');
+        
+        // Add conditions for each significant name part
+        foreach ($nameParts as $part) {
+            $query->where(DB::raw('LOWER(name)'), 'LIKE', '%' . $part . '%');
+        }
+        
+        $student = $query->first();
+
+        // If no exact match found, try a more flexible search
+        if (!$student && count($nameParts) >= 2) {
+            // Try matching just first and last name
+            $firstName = $nameParts[0];
+            $lastName = end($nameParts);
+            
+            $student = DB::table('students')
+                        ->where('course', 'LIKE', '%' . $course . '%')
+                        ->where(DB::raw('LOWER(name)'), 'LIKE', '%' . $firstName . '%')
+                        ->where(DB::raw('LOWER(name)'), 'LIKE', '%' . $lastName . '%')
+                        ->first();
+        }
+
+        return $student ? Student::find($student->id) : null;
     }
 
     /**
@@ -330,37 +678,94 @@ class TeacherController extends Controller
     }
 
     /**
+     * Show attendance session page with QR scanner
+     */
+    public function showAttendanceSession($sessionId)
+    {
+        $teacher = $this->getCurrentTeacher();
+        $session = AttendanceSession::with(['class', 'attendanceRecords.student'])
+                                   ->where('teacher_id', $teacher->id)
+                                   ->findOrFail($sessionId);
+
+        // Get all students in the class
+        $allStudents = DB::table('class_student')
+                        ->join('students', 'class_student.student_id', '=', 'students.id')
+                        ->where('class_student.class_model_id', $session->class_id)
+                        ->select(
+                            'students.id',
+                            'students.student_id',
+                            'students.name',
+                            'students.email',
+                            'students.year',
+                            'students.course',
+                            'students.section'
+                        )
+                        ->get();
+
+        // Get attendance records for this session
+        $attendanceRecords = $session->attendanceRecords->pluck('student_id')->toArray();
+
+        return Inertia::render('Teacher/AttendanceSession', [
+            'teacher' => $teacher,
+            'session' => $session,
+            'students' => $allStudents,
+            'attendance_records' => $attendanceRecords
+        ]);
+    }
+
+    /**
      * Upload file to class
      */
-    public function uploadFile(Request $request, $classId)
+    public function uploadFile(Request $request, $classId = null)
     {
+        // Log the incoming request for debugging
+        Log::info('Upload request received', [
+            'files_count' => $request->hasFile('files') ? count($request->file('files')) : 0,
+            'class_id' => $request->input('class_id'),
+            'all_input' => $request->all()
+        ]);
+
         $request->validate([
-            'file' => 'required|file|max:10240', // 10MB max
-            'description' => 'nullable|string|max:500'
+            'files' => 'required|array',
+            'files.*' => 'required|file|max:10240', // 10MB max per file
+            'class_id' => 'required|exists:class_models,id',
+            'description' => 'nullable|string|max:500',
+            'allow_download' => 'nullable|boolean',
+            'notify_students' => 'nullable|boolean'
         ]);
 
         $teacher = $this->getCurrentTeacher();
+        
+        // Get class_id from request body
+        $classId = $request->input('class_id');
+
         $class = ClassModel::forTeacher($teacher->id)->findOrFail($classId);
 
-        $file = $request->file('file');
-        $fileName = time() . '_' . $file->getClientOriginalName();
-        $filePath = $file->storeAs('class-files/' . $classId, $fileName, 'public');
+        $uploadedFiles = [];
+        
+        // Process each file
+        foreach ($request->file('files') as $file) {
+            $fileName = time() . '_' . uniqid() . '_' . $file->getClientOriginalName();
+            $filePath = $file->storeAs('class-files/' . $classId, $fileName, 'public');
 
-        $classFile = ClassFile::create([
-            'class_id' => $classId,
-            'teacher_id' => $teacher->id,
-            'file_name' => $file->getClientOriginalName(),
-            'file_type' => $file->getMimeType(),
-            'file_size' => $file->getSize(),
-            'file_url' => Storage::url($filePath),
-            'description' => $request->description,
-            'is_public' => true
-        ]);
+            $classFile = ClassFile::create([
+                'class_id' => $classId,
+                'teacher_id' => $teacher->id,
+                'file_name' => $file->getClientOriginalName(),
+                'file_type' => $file->getMimeType(),
+                'file_size' => $file->getSize(),
+                'file_url' => Storage::url($filePath),
+                'description' => $request->description,
+                'is_public' => $request->boolean('allow_download', true)
+            ]);
+            
+            $uploadedFiles[] = $classFile;
+        }
 
         return response()->json([
             'success' => true,
-            'message' => 'File uploaded successfully',
-            'file' => $classFile
+            'message' => count($uploadedFiles) . ' file(s) uploaded successfully',
+            'files' => $uploadedFiles
         ]);
     }
 
@@ -413,7 +818,7 @@ class TeacherController extends Controller
         $today = Carbon::today();
         
         // Get total classes and students using simple queries
-        $totalClasses = DB::table('classes')
+        $totalClasses = DB::table('class_models')
                            ->where('teacher_id', $teacher->id)
                            ->count();
         
@@ -495,8 +900,8 @@ class TeacherController extends Controller
                      ->where('teacher_id', $teacher->id)
                      ->get()
                      ->map(function ($class) {
-                         $studentCount = DB::table('class_students')
-                                          ->where('class_id', $class->id)
+                                                  $studentCount = DB::table('class_student')
+                                          ->where('class_model_id', $class->id)
                                           ->count();
                          
                          return [
@@ -523,10 +928,10 @@ class TeacherController extends Controller
                            ->map(function ($session) {
                                $attendanceStats = DB::table('attendance_records')
                                                    ->where('attendance_session_id', $session->id)
-                                                   ->selectRaw('
+                                                   ->selectRaw("
                                                        COUNT(*) as total_count,
-                                                       SUM(CASE WHEN status = "present" THEN 1 ELSE 0 END) as present_count
-                                                   ')
+                                                       SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as present_count
+                                                   ")
                                                    ->first();
 
                                $date = Carbon::parse($session->created_at);
@@ -556,9 +961,13 @@ class TeacherController extends Controller
     public function files()
     {
         $teacher = $this->getCurrentTeacher();
+        $classes = ClassModel::forTeacher($teacher->id)
+            ->select('id', 'name', 'course', 'section')
+            ->get();
 
         return Inertia::render('Teacher/Files', [
-            'teacher' => $teacher
+            'teacher' => $teacher,
+            'classes' => $classes
         ]);
     }
 
@@ -569,9 +978,289 @@ class TeacherController extends Controller
     {
         $teacher = $this->getCurrentTeacher();
 
+        // Get summary data for the reports dashboard
+        $classes = DB::table('classes')
+                    ->where('teacher_id', $teacher->id)
+                    ->get();
+
+        $totalStudents = 0;
+        $attendanceData = [];
+
+        foreach ($classes as $class) {
+            $studentCount = DB::table('class_student')->where('class_model_id', $class->id)->count();
+            $totalStudents += $studentCount;
+
+            // Get recent attendance rate for this class
+            $recentSessions = DB::table('attendance_sessions')
+                               ->where('class_id', $class->id)
+                               ->where('session_date', '>=', now()->subDays(7))
+                               ->get();
+
+            $totalPresent = 0;
+            $totalPossible = 0;
+
+            foreach ($recentSessions as $session) {
+                $present = DB::table('attendance_records')
+                            ->where('attendance_session_id', $session->id)
+                            ->where('status', 'present')
+                            ->count();
+                $total = DB::table('attendance_records')
+                          ->where('attendance_session_id', $session->id)
+                          ->count();
+
+                $totalPresent += $present;
+                $totalPossible += $total;
+            }
+
+            $attendanceRate = $totalPossible > 0 ? ($totalPresent / $totalPossible) * 100 : 0;
+
+            $attendanceData[] = [
+                'class_name' => $class->name,
+                'student_count' => $studentCount,
+                'attendance_rate' => round($attendanceRate, 1)
+            ];
+        }
+
         return Inertia::render('Teacher/Reports', [
-            'teacher' => $teacher
+            'teacher' => $teacher,
+            'summary' => [
+                'total_classes' => count($classes),
+                'total_students' => $totalStudents,
+                'attendance_data' => $attendanceData
+            ]
         ]);
+    }
+
+    /**
+     * Get detailed attendance reports
+     */
+    public function attendanceReports(Request $request)
+    {
+        $teacher = $this->getCurrentTeacher();
+        
+        $classes = DB::table('classes')
+                    ->where('teacher_id', $teacher->id)
+                    ->get();
+
+        $selectedClassId = $request->get('class_id');
+        
+        $query = DB::table('attendance_sessions')
+                   ->join('classes', 'attendance_sessions.class_id', '=', 'classes.id')
+                   ->where('classes.teacher_id', $teacher->id);
+
+        if ($selectedClassId) {
+            $query->where('attendance_sessions.class_id', $selectedClassId);
+        }
+
+        $sessions = $query->orderBy('attendance_sessions.session_date', 'desc')
+                         ->select(
+                             'attendance_sessions.*',
+                             'classes.name as class_name',
+                             'classes.course',
+                             'classes.section'
+                         )
+                         ->get();
+
+        // Get attendance records for each session
+        foreach ($sessions as $session) {
+            $records = DB::table('attendance_records')
+                        ->join('students', 'attendance_records.student_id', '=', 'students.id')
+                        ->where('attendance_session_id', $session->id)
+                        ->select(
+                            'students.student_id',
+                            'students.name',
+                            'attendance_records.status',
+                            'attendance_records.marked_at'
+                        )
+                        ->get();
+
+            $session->attendance_records = $records;
+            $session->present_count = $records->where('status', 'present')->count();
+            $session->absent_count = $records->where('status', 'absent')->count();
+            $session->total_count = $records->count();
+        }
+
+        return Inertia::render('Teacher/AttendanceReports', [
+            'teacher' => $teacher,
+            'classes' => $classes,
+            'sessions' => $sessions,
+            'selectedClassId' => $selectedClassId
+        ]);
+    }
+
+    /**
+     * Export attendance report
+     */
+    public function exportAttendanceReport(Request $request)
+    {
+        $teacher = $this->getCurrentTeacher();
+        
+        // This would typically generate and return a CSV/PDF file
+        // For now, return the data as JSON
+        $classId = $request->get('class_id');
+        $startDate = $request->get('start_date');
+        $endDate = $request->get('end_date');
+
+        $query = DB::table('attendance_sessions')
+                   ->join('classes', 'attendance_sessions.class_id', '=', 'classes.id')
+                   ->where('classes.teacher_id', $teacher->id);
+
+        if ($classId) {
+            $query->where('attendance_sessions.class_id', $classId);
+        }
+
+        if ($startDate) {
+            $query->where('attendance_sessions.session_date', '>=', $startDate);
+        }
+
+        if ($endDate) {
+            $query->where('attendance_sessions.session_date', '<=', $endDate);
+        }
+
+        $sessions = $query->get();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Report exported successfully',
+            'data' => $sessions
+        ]);
+    }
+
+    /**
+     * Student reports page
+     */
+    public function studentReports()
+    {
+        $teacher = $this->getCurrentTeacher();
+        
+        $classes = DB::table('classes')
+                    ->where('teacher_id', $teacher->id)
+                    ->get();
+
+        $students = [];
+        foreach ($classes as $class) {
+            $classStudents = DB::table('class_student')
+                              ->join('students', 'class_student.student_id', '=', 'students.id')
+                              ->where('class_student.class_model_id', $class->id)
+                              ->select(
+                                  'students.*',
+                                  'class_student.status',
+                                  'class_student.enrolled_at'
+                              )
+                              ->get();
+
+            foreach ($classStudents as $student) {
+                // Calculate attendance rate for this student
+                $totalSessions = DB::table('attendance_sessions')
+                                  ->where('class_id', $class->id)
+                                  ->count();
+
+                $presentSessions = DB::table('attendance_records')
+                                    ->join('attendance_sessions', 'attendance_records.attendance_session_id', '=', 'attendance_sessions.id')
+                                    ->where('attendance_sessions.class_id', $class->id)
+                                    ->where('attendance_records.student_id', $student->id)
+                                    ->where('attendance_records.status', 'present')
+                                    ->count();
+
+                $attendanceRate = $totalSessions > 0 ? ($presentSessions / $totalSessions) * 100 : 0;
+
+                $students[] = [
+                    'id' => $student->id,
+                    'student_id' => $student->student_id,
+                    'name' => $student->name,
+                    'email' => $student->email,
+                    'class_name' => $class->name,
+                    'attendance_rate' => round($attendanceRate, 1),
+                    'total_sessions' => $totalSessions,
+                    'present_sessions' => $presentSessions
+                ];
+            }
+        }
+
+        return Inertia::render('Teacher/StudentReports', [
+            'teacher' => $teacher,
+            'students' => $students,
+            'classes' => $classes
+        ]);
+    }
+
+    /**
+     * Export reports page
+     */
+    public function exportReports()
+    {
+        $teacher = $this->getCurrentTeacher();
+        
+        $classes = DB::table('classes')
+                    ->where('teacher_id', $teacher->id)
+                    ->get();
+
+        return Inertia::render('Teacher/ExportReports', [
+            'teacher' => $teacher,
+            'classes' => $classes
+        ]);
+    }
+
+    /**
+     * Lookup student by name for QR scanner
+     */
+    public function lookupStudent(Request $request)
+    {
+        $request->validate([
+            'name' => 'required|string',
+            'course' => 'required|string'
+        ]);
+
+        $name = $request->input('name');
+        $course = $request->input('course');
+
+        // Parse the input name to extract key parts
+        $nameParts = array_filter(explode(' ', strtolower(trim($name))), function($part) {
+            return !empty($part) && $part !== 'a.' && $part !== 'a'; // Filter out middle initial
+        });
+
+        // Search for student by matching key name parts and course
+        $query = DB::table('students')->where('course', 'LIKE', '%' . $course . '%');
+        
+        // Add conditions for each significant name part
+        foreach ($nameParts as $part) {
+            $query->where(DB::raw('LOWER(name)'), 'LIKE', '%' . $part . '%');
+        }
+        
+        $student = $query->first();
+
+        // If no exact match found, try a more flexible search
+        if (!$student && count($nameParts) >= 2) {
+            // Try matching just first and last name
+            $firstName = $nameParts[0];
+            $lastName = end($nameParts);
+            
+            $student = DB::table('students')
+                        ->where('course', 'LIKE', '%' . $course . '%')
+                        ->where(DB::raw('LOWER(name)'), 'LIKE', '%' . $firstName . '%')
+                        ->where(DB::raw('LOWER(name)'), 'LIKE', '%' . $lastName . '%')
+                        ->first();
+        }
+
+        if ($student) {
+            return response()->json([
+                'success' => true,
+                'student' => [
+                    'id' => $student->id,
+                    'student_id' => $student->student_id,
+                    'name' => $student->name,
+                    'year' => $student->year,
+                    'course' => $student->course,
+                    'section' => $student->section,
+                    'email' => $student->email
+                ]
+            ]);
+        }
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Student not found'
+        ], 404);
     }
 
     /**
@@ -632,5 +1321,89 @@ class TeacherController extends Controller
             DB::rollBack();
             return back()->withErrors(['error' => 'Failed to update attendance records: ' . $e->getMessage()]);
         }
+    }
+
+    /**
+     * Show direct attendance page for quick QR scanning or manual input
+     */
+    public function showDirectAttendance($classId)
+    {
+        $teacher = $this->getCurrentTeacher();
+        $class = ClassModel::forTeacher($teacher->id)->findOrFail($classId);
+
+        // Get all students in the class
+        $students = DB::table('class_student')
+                     ->join('students', 'class_student.student_id', '=', 'students.id')
+                     ->where('class_student.class_model_id', $classId)
+                     ->select(
+                         'students.id',
+                         'students.student_id',
+                         'students.name',
+                         'students.email',
+                         'students.year',
+                         'students.course',
+                         'students.section'
+                     )
+                     ->get();
+
+        // Create or get active session for today
+        $activeSession = AttendanceSession::where('class_id', $classId)
+                                         ->where('teacher_id', $teacher->id)
+                                         ->where('session_date', now()->toDateString())
+                                         ->where('status', 'active')
+                                         ->first();
+
+        if (!$activeSession) {
+            // Create a new session for today
+            $qrCode = 'session_' . uniqid() . '_' . time();
+            $activeSession = AttendanceSession::create([
+                'class_id' => $classId,
+                'teacher_id' => $teacher->id,
+                'session_name' => 'Direct Attendance - ' . now()->format('M d, Y H:i'),
+                'session_date' => now()->toDateString(),
+                'start_time' => now()->format('H:i:s'),
+                'status' => 'active',
+                'qr_code' => $qrCode
+            ]);
+        }
+
+        // Get attendance records for this session
+        $attendanceRecords = DB::table('attendance_records')
+                              ->where('attendance_session_id', $activeSession->id)
+                              ->pluck('student_id')
+                              ->toArray();
+
+        return Inertia::render('Teacher/DirectAttendance', [
+            'teacher' => $teacher,
+            'classInfo' => [
+                'id' => $class->id,
+                'name' => $class->name,
+                'course' => $class->course,
+                'section' => $class->section,
+                'year' => $class->year,
+                'class_code' => $class->class_code
+            ],
+            'session' => $activeSession,
+            'students' => $students,
+            'attendance_records' => $attendanceRecords
+        ]);
+    }
+
+    /**
+     * Generate a unique class code
+     */
+    private function generateUniqueClassCode($course, $section, $year)
+    {
+        $baseCode = strtoupper(substr($course, 0, 3) . '-' . $section . '-' . $year);
+        $classCode = $baseCode;
+        $counter = 1;
+
+        // Keep generating until we find a unique code
+        while (ClassModel::where('class_code', $classCode)->exists()) {
+            $classCode = $baseCode . '-' . $counter;
+            $counter++;
+        }
+
+        return $classCode;
     }
 }
