@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import AppLayout from '@/layouts/AppLayout.vue';
-import { Head } from '@inertiajs/vue3';
+import { Head, router } from '@inertiajs/vue3';
 import { ref, computed } from 'vue';
-import QrScanner from '@/components/QrScanner.vue';
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -49,7 +49,7 @@ const breadcrumbs = [
 ];
 
 // QR Scanner state
-const showQRScanner = ref(false);
+
 const showCreateSessionDialog = ref(false);
 const showManageSessionDialog = ref(false);
 const selectedSession = ref<any>(null);
@@ -72,19 +72,7 @@ const manageAttendanceForm = useForm({
   }>
 });
 
-const openQRScanner = () => {
-  showQRScanner.value = true;
-};
-
-const closeQRScanner = () => {
-  showQRScanner.value = false;
-};
-
-const onScanSuccess = (studentData: any) => {
-  console.log('Student scanned successfully:', studentData);
-  alert(`Successfully scanned: ${studentData.name} (${studentData.student_id})`);
-  closeQRScanner();
-};
+// QR Scanner functionality removed - use sessions instead
 
 // Create attendance session
 const createAttendanceSession = () => {
@@ -101,44 +89,51 @@ const startQuickSession = async (classId: number) => {
   try {
     createSessionForm.processing = true;
     
-    const response = await fetch('/teacher/attendance/quick-start', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
-        'X-Requested-With': 'XMLHttpRequest'
+    // Use Inertia router for proper CSRF handling
+    router.post('/teacher/attendance/quick-start', {
+      class_id: classId
+    }, {
+      onSuccess: () => {
+        console.log('Quick session started successfully');
+        // The server redirects to the session page automatically
+        // No need to handle redirect here as Inertia handles it
+        createSessionForm.processing = false;
       },
-      body: JSON.stringify({ class_id: classId })
+      onError: (errors: any) => {
+        console.error('Error starting quick session:', errors);
+        alert('Failed to start session: ' + (errors.message || 'Unknown error'));
+        createSessionForm.processing = false;
+      },
+      preserveScroll: true,
+      preserveState: false // Allow refresh to get updated session data
     });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ message: 'Failed to start session' }));
-      throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-    }
-
-    const data = await response.json();
-    
-    if (data.success) {
-      // Redirect to the session page with QR scanner
-      window.location.href = `/teacher/attendance/session/${data.session.id}`;
-    } else {
-      throw new Error(data.message || 'Failed to start session');
-    }
   } catch (error) {
     console.error('Error starting quick session:', error);
     alert(error instanceof Error ? error.message : 'Failed to start session');
-  } finally {
     createSessionForm.processing = false;
   }
 };
 
 // Open session management
-const manageSession = (session: any) => {
+const manageSession = async (session: any) => {
   selectedSession.value = session;
+  
+  // Load actual attendance records for this session
+  try {
+    const response = await fetch(`/teacher/attendance/sessions/${session.id}`);
+    if (response.ok) {
+      const sessionData = await response.json();
+      selectedSession.value = {
+        ...session,
+        attendance_records: sessionData.attendance_records || [],
+        students: sessionData.students || []
+      };
+    }
+  } catch (error) {
+    console.error('Failed to load session data:', error);
+  }
+  
   showManageSessionDialog.value = true;
-  // Load attendance records for this session
-  // This would typically be loaded from the backend
 };
 
 // Update attendance records
@@ -149,8 +144,105 @@ const updateAttendance = () => {
     onSuccess: () => {
       showManageSessionDialog.value = false;
       selectedSession.value = null;
+      // Refresh the page to show updated data
+      router.reload();
     }
   });
+};
+
+// Delete attendance session
+const deleteSession = () => {
+  if (!selectedSession.value) return;
+  
+  const sessionName = selectedSession.value.class_name;
+  const confirmMessage = `Are you sure you want to delete the attendance session "${sessionName}"?\n\nThis action cannot be undone and will remove all attendance records for this session.`;
+  
+  if (confirm(confirmMessage)) {
+    router.delete(`/teacher/attendance/sessions/${selectedSession.value.id}`, {
+      onSuccess: () => {
+        showManageSessionDialog.value = false;
+        selectedSession.value = null;
+        // Refresh the page to show updated data
+        router.reload();
+      },
+      onError: (errors: any) => {
+        console.error('Failed to delete session:', errors);
+        alert('Failed to delete session: ' + (errors.message || 'Unknown error'));
+      }
+    });
+  }
+};
+
+// Mark individual student attendance
+const markStudentAttendance = (studentId: string, status: string) => {
+  if (!selectedSession.value) return;
+  
+  router.post(`/teacher/attendance/${selectedSession.value.id}/mark`, {
+    student_id: studentId,
+    status: status,
+    method: 'manual'
+  }, {
+    onSuccess: () => {
+      // Refresh session data
+      manageSession(selectedSession.value);
+    },
+    onError: (errors: any) => {
+      console.error('Failed to mark attendance:', errors);
+      alert('Failed to update attendance: ' + (errors.message || 'Unknown error'));
+    },
+    preserveState: true
+  });
+};
+
+// Helper functions
+const getStudentInitials = (record: any) => {
+  // Handle both nested student object and flattened structure
+  const name = record?.student?.name || record?.name;
+  if (!name) return '??';
+  const names = name.split(' ');
+  return names.length > 1 ? `${names[0][0]}${names[names.length-1][0]}` : names[0][0] + names[0][1] || names[0][0];
+};
+
+const getStatusVariant = (status: string) => {
+  switch (status) {
+    case 'present': return 'default';
+    case 'late': return 'secondary';
+    case 'absent': return 'destructive';
+    case 'excused': return 'outline';
+    default: return 'secondary';
+  }
+};
+
+// Navigation functions
+const goToSession = () => {
+  if (selectedSession.value) {
+    router.visit(`/teacher/attendance/session/${selectedSession.value.id}`);
+  }
+};
+
+const endSessionFromDialog = () => {
+  if (!selectedSession.value) return;
+  
+  if (confirm('Are you sure you want to end this attendance session?')) {
+    router.put(`/teacher/attendance/sessions/${selectedSession.value.id}/end`, {}, {
+      onSuccess: () => {
+        showManageSessionDialog.value = false;
+        selectedSession.value = null;
+        // Refresh the page to show updated data
+        router.reload();
+      },
+      onError: (errors: any) => {
+        console.error('Failed to end session:', errors);
+        alert('Failed to end session: ' + (errors.message || 'Unknown error'));
+      }
+    });
+  }
+};
+
+const exportSession = () => {
+  if (selectedSession.value) {
+    window.open(`/teacher/attendance/sessions/${selectedSession.value.id}/export`, '_blank');
+  }
 };
 </script>
 
@@ -164,42 +256,61 @@ const updateAttendance = () => {
       <div class="space-y-2">
         <h1 class="text-3xl font-bold tracking-tight">Attendance Management</h1>
         <p class="text-muted-foreground">
-          Take attendance for your classes using various methods
+          Manage attendance sessions for your classes
         </p>
       </div>
 
-      <!-- Attendance Methods -->
-      <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        <Card class="hover:shadow-md transition-shadow cursor-pointer" @click="openQRScanner">
-          <CardHeader class="text-center">
-            <div class="mx-auto mb-4 text-6xl">📱</div>
-            <CardTitle>QR Code Attendance</CardTitle>
-            <CardDescription>Students scan QR code to mark attendance</CardDescription>
+      <!-- Statistics Overview -->
+      <div class="grid gap-4 md:grid-cols-4">
+        <Card>
+          <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle class="text-sm font-medium">Total Classes</CardTitle>
+            <span class="text-xl">📚</span>
           </CardHeader>
-          <CardContent class="text-center">
-            <Button class="w-full">Start QR Attendance</Button>
+          <CardContent>
+            <div class="text-2xl font-bold">{{ classes.length }}</div>
+            <p class="text-xs text-muted-foreground mt-1">
+              Active classes
+            </p>
           </CardContent>
         </Card>
 
-        <Card class="hover:shadow-md transition-shadow cursor-pointer" @click="$inertia.visit('/teacher/attendance/manual')">
-          <CardHeader class="text-center">
-            <div class="mx-auto mb-4 text-6xl">✏️</div>
-            <CardTitle>Manual Attendance</CardTitle>
-            <CardDescription>Manually mark attendance for students</CardDescription>
+        <Card>
+          <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle class="text-sm font-medium">Recent Sessions</CardTitle>
+            <span class="text-xl">📅</span>
           </CardHeader>
-          <CardContent class="text-center">
-            <Button variant="outline" class="w-full">Manual Entry</Button>
+          <CardContent>
+            <div class="text-2xl font-bold">{{ recent_sessions.length }}</div>
+            <p class="text-xs text-muted-foreground mt-1">
+              Last 10 sessions
+            </p>
           </CardContent>
         </Card>
 
-        <Card class="hover:shadow-md transition-shadow cursor-pointer" @click="$inertia.visit('/teacher/attendance/upload')">
-          <CardHeader class="text-center">
-            <div class="mx-auto mb-4 text-6xl">📊</div>
-            <CardTitle>Upload Attendance</CardTitle>
-            <CardDescription>Upload attendance data from file</CardDescription>
+        <Card>
+          <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle class="text-sm font-medium">Total Students</CardTitle>
+            <span class="text-xl">👥</span>
           </CardHeader>
-          <CardContent class="text-center">
-            <Button variant="outline" class="w-full">Upload File</Button>
+          <CardContent>
+            <div class="text-2xl font-bold">{{ classes.reduce((sum, cls) => sum + cls.student_count, 0) }}</div>
+            <p class="text-xs text-muted-foreground mt-1">
+              Across all classes
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle class="text-sm font-medium">Active Sessions</CardTitle>
+            <span class="text-xl">🟢</span>
+          </CardHeader>
+          <CardContent>
+            <div class="text-2xl font-bold">{{ recent_sessions.filter(s => s.status === 'active').length }}</div>
+            <p class="text-xs text-muted-foreground mt-1">
+              Currently active
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -338,60 +449,7 @@ const updateAttendance = () => {
         </CardContent>
       </Card>
 
-      <!-- Quick Stats -->
-      <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle class="text-sm font-medium">Today's Sessions</CardTitle>
-            <span class="text-xl">📅</span>
-          </CardHeader>
-          <CardContent>
-            <div class="text-2xl font-bold">3</div>
-            <p class="text-xs text-muted-foreground mt-1">
-              Sessions completed
-            </p>
-          </CardContent>
-        </Card>
 
-        <Card>
-          <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle class="text-sm font-medium">Present Students</CardTitle>
-            <span class="text-xl">✅</span>
-          </CardHeader>
-          <CardContent>
-            <div class="text-2xl font-bold">67</div>
-            <p class="text-xs text-muted-foreground mt-1">
-              Out of 75 total
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle class="text-sm font-medium">Attendance Rate</CardTitle>
-            <span class="text-xl">📊</span>
-          </CardHeader>
-          <CardContent>
-            <div class="text-2xl font-bold">89%</div>
-            <p class="text-xs text-muted-foreground mt-1">
-              This week's average
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle class="text-sm font-medium">Late Students</CardTitle>
-            <span class="text-xl">⏰</span>
-          </CardHeader>
-          <CardContent>
-            <div class="text-2xl font-bold">8</div>
-            <p class="text-xs text-muted-foreground mt-1">
-              Need attention
-            </p>
-          </CardContent>
-        </Card>
-      </div>
 
     </div>
 
@@ -407,37 +465,125 @@ const updateAttendance = () => {
         <div class="py-4">
           <div class="space-y-4">
             <div class="flex items-center justify-between">
-              <h4 class="font-medium">Attendance Status</h4>
+              <h4 class="font-medium">Attendance Records</h4>
               <div class="flex gap-2">
-                <Button size="sm" variant="outline">
+                <Button size="sm" variant="outline" @click="exportSession" v-if="selectedSession">
                   Export Report
                 </Button>
-                <Button size="sm" variant="outline">
-                  Send Notifications
-                </Button>
+                <Badge :variant="selectedSession?.status === 'active' ? 'default' : 'secondary'">
+                  {{ selectedSession?.status || 'Unknown' }}
+                </Badge>
               </div>
             </div>
-            <div class="text-center py-8 text-muted-foreground">
+
+            <!-- No Records State -->
+            <div v-if="!selectedSession?.attendance_records || selectedSession.attendance_records.length === 0" 
+                 class="text-center py-8 text-muted-foreground">
               <Users class="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>Student attendance records would be displayed here</p>
-              <p class="text-sm">Individual student status can be modified</p>
+              <p class="font-medium">No attendance records found</p>
+              <p class="text-sm">No students have been marked for this session yet.</p>
+              
+              <!-- Action for sessions with no records -->
+              <div class="mt-6 space-y-3">
+                <div v-if="selectedSession?.status === 'active'">
+                  <p class="text-sm text-blue-600 mb-2">This session is still active. You can:</p>
+                  <div class="flex justify-center gap-2">
+                    <Button @click="goToSession" size="sm">
+                      Manage Session
+                    </Button>
+                    <Button @click="endSessionFromDialog" variant="outline" size="sm">
+                      End Session
+                    </Button>
+                  </div>
+                </div>
+                <div v-else>
+                  <p class="text-sm text-orange-600 mb-2">This completed session has no records.</p>
+                  <Button @click="deleteSession" variant="destructive" size="sm">
+                    Delete Empty Session
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Records List -->
+            <div v-else class="space-y-2 max-h-60 overflow-y-auto">
+              <div v-for="record in selectedSession.attendance_records" :key="record.id"
+                   class="flex items-center justify-between p-3 border rounded-lg">
+                <div class="flex items-center gap-3">
+                  <div class="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center text-sm font-medium">
+                    {{ getStudentInitials(record) }}
+                  </div>
+                  <div>
+                    <p class="font-medium">{{ record.student?.name || record.name }}</p>
+                    <p class="text-sm text-muted-foreground">{{ record.student?.student_id || record.student_id }}</p>
+                  </div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <Badge :variant="getStatusVariant(record.status)">
+                    {{ record.status }}
+                  </Badge>
+                  <select 
+                    :value="record.status" 
+                    @change="markStudentAttendance(record.student?.student_id || record.student_id, ($event.target as HTMLSelectElement).value)"
+                    class="text-sm border rounded px-2 py-1"
+                  >
+                    <option value="present">Present</option>
+                    <option value="absent">Absent</option>
+                    <option value="late">Late</option>
+                    <option value="excused">Excused</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Session Statistics -->
+            <div v-if="selectedSession?.attendance_records && selectedSession.attendance_records.length > 0" 
+                 class="border-t pt-4">
+              <div class="grid grid-cols-4 gap-4 text-center">
+                <div>
+                  <div class="text-lg font-semibold text-green-600">
+                    {{ selectedSession.attendance_records.filter((r: any) => r.status === 'present').length }}
+                  </div>
+                  <div class="text-xs text-muted-foreground">Present</div>
+                </div>
+                <div>
+                  <div class="text-lg font-semibold text-yellow-600">
+                    {{ selectedSession.attendance_records.filter((r: any) => r.status === 'late').length }}
+                  </div>
+                  <div class="text-xs text-muted-foreground">Late</div>
+                </div>
+                <div>
+                  <div class="text-lg font-semibold text-red-600">
+                    {{ selectedSession.attendance_records.filter((r: any) => r.status === 'absent').length }}
+                  </div>
+                  <div class="text-xs text-muted-foreground">Absent</div>
+                </div>
+                <div>
+                  <div class="text-lg font-semibold text-blue-600">
+                    {{ selectedSession.attendance_records.filter((r: any) => r.status === 'excused').length }}
+                  </div>
+                  <div class="text-xs text-muted-foreground">Excused</div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" @click="showManageSessionDialog = false">Close</Button>
-          <Button @click="updateAttendance" :disabled="manageAttendanceForm.processing">
-            {{ manageAttendanceForm.processing ? 'Updating...' : 'Update Attendance' }}
-          </Button>
+          <div class="flex justify-between w-full">
+            <Button variant="destructive" @click="deleteSession" size="sm" v-if="selectedSession">
+              Delete Session
+            </Button>
+            <div class="flex gap-2">
+              <Button variant="outline" @click="showManageSessionDialog = false">Close</Button>
+              <Button v-if="selectedSession?.status === 'active'" @click="goToSession">
+                Manage Live Session
+              </Button>
+            </div>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
 
-    <!-- QR Scanner Component -->
-    <QrScanner 
-      :show="showQRScanner"
-      @close="closeQRScanner"
-      @scan-success="onScanSuccess"
-    />
+
   </AppLayout>
 </template>

@@ -28,7 +28,7 @@ class AttendanceRecord extends Model
     // Relationships
     public function session(): BelongsTo
     {
-        return $this->belongsTo(AttendanceSession::class, 'session_id');
+        return $this->belongsTo(AttendanceSession::class, 'attendance_session_id');
     }
 
     public function student(): BelongsTo

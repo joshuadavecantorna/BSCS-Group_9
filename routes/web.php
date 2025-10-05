@@ -48,7 +48,9 @@ Route::middleware(['auth', 'verified'])->prefix('teacher')->name('teacher.')->gr
     Route::delete('/classes/{id}', [App\Http\Controllers\TeacherController::class, 'deleteClass']);
     
     // Student Management
+    Route::get('/students/search', [App\Http\Controllers\TeacherController::class, 'searchStudents']);
     Route::post('/classes/{classId}/students', [App\Http\Controllers\TeacherController::class, 'addStudentsToClass']);
+    Route::post('/classes/{classId}/students/existing', [App\Http\Controllers\TeacherController::class, 'addExistingStudentsToClass']);
     Route::get('/classes/{classId}/students', [App\Http\Controllers\TeacherController::class, 'getClassStudents']);
     Route::delete('/classes/{classId}/students/{studentId}', [App\Http\Controllers\TeacherController::class, 'removeStudentFromClass']);
     
@@ -57,11 +59,14 @@ Route::middleware(['auth', 'verified'])->prefix('teacher')->name('teacher.')->gr
     Route::post('/attendance/quick-start', [App\Http\Controllers\TeacherController::class, 'quickStartSession']);
     Route::get('/attendance/sessions/{sessionId}', [App\Http\Controllers\TeacherController::class, 'getAttendanceSession']);
     Route::put('/attendance/sessions/{sessionId}/end', [App\Http\Controllers\TeacherController::class, 'endAttendanceSession']);
+    Route::delete('/attendance/sessions/{sessionId}', [App\Http\Controllers\TeacherController::class, 'deleteAttendanceSession']);
+    Route::get('/attendance/sessions/{sessionId}/export', [App\Http\Controllers\TeacherController::class, 'exportAttendanceSession']);
     Route::put('/attendance/sessions/{sessionId}/records', [App\Http\Controllers\TeacherController::class, 'updateAttendanceRecords']);
     Route::post('/attendance/mark', [App\Http\Controllers\TeacherController::class, 'markAttendance']);
     Route::post('/attendance/{sessionId}/mark', [App\Http\Controllers\TeacherController::class, 'markAttendance']);
     Route::post('/attendance/{sessionId}/qr-scan', [App\Http\Controllers\TeacherController::class, 'markAttendanceByQR']);
-    Route::get('/attendance/session/{sessionId}', [App\Http\Controllers\TeacherController::class, 'showAttendanceSession']);
+    Route::post('/attendance/{sessionId}/upload', [App\Http\Controllers\TeacherController::class, 'uploadAttendanceFile']);
+    Route::get('/attendance/session/{sessionId}', [App\Http\Controllers\TeacherController::class, 'showAttendanceSession'])->name('attendance.session');
     Route::get('/attendance/direct/{classId}', [App\Http\Controllers\TeacherController::class, 'showDirectAttendance']);
     
     // File Management
@@ -88,6 +93,7 @@ Route::middleware(['auth', 'verified'])->prefix('student')->name('student.')->gr
     Route::get('/excuse-requests', [App\Http\Controllers\StudentController::class, 'excuseRequests'])->name('excuse-requests');
     Route::post('/excuse-requests', [App\Http\Controllers\StudentController::class, 'submitExcuseRequest'])->name('excuse-requests.submit');
     Route::post('/quick-checkin', [App\Http\Controllers\StudentController::class, 'quickCheckIn'])->name('quick-checkin');
+    Route::post('/self-checkin', [App\Http\Controllers\StudentController::class, 'selfCheckIn'])->name('self-checkin');
 });
 
 // Admin Routes (for non-teacher users)

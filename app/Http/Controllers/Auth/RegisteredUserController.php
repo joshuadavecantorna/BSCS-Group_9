@@ -42,6 +42,28 @@ class RegisteredUserController extends Controller
             'password' => Hash::make($request->password),
         ]);
 
+        // Create a student record for the new user (since default role is 'student')
+        if ($user->role === 'student') {
+            // Check if a student record with this email already exists
+            $existingStudent = \App\Models\Student::where('email', $user->email)->first();
+            
+            if ($existingStudent && !$existingStudent->user_id) {
+                // If student exists but has no user_id, link them
+                $existingStudent->update(['user_id' => $user->id]);
+            } elseif (!$existingStudent) {
+                // If no student record exists, create one
+                \App\Models\Student::create([
+                    'user_id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'student_id' => 'TEMP-' . $user->id,
+                    'course' => 'Not Set',
+                    'year' => '1st Year',
+                    'section' => 'A'
+                ]);
+            }
+        }
+
         event(new Registered($user));
 
         Auth::login($user);

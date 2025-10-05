@@ -70,41 +70,61 @@ class TeacherController extends Controller
      */
     public function createClass(Request $request)
     {
-        $request->validate([
-            'name' => 'required|string|max:255',
-            'course' => 'required|string|max:100',
-            'section' => 'required|string|max:10',
-            'subject' => 'nullable|string|max:255',
-            'year' => 'required|string|max:20',
-            'description' => 'nullable|string',
-            'schedule_time' => 'nullable|date_format:H:i',
-            'schedule_days' => 'nullable|array',
-        ]);
+        try {
+            $request->validate([
+                'name' => 'required|string|max:255',
+                'course' => 'required|string|max:255',
+                'section' => 'required|string|max:10',
+                'subject' => 'nullable|string|max:255',
+                'year' => 'required|string|max:50',
+                'description' => 'nullable|string',
+                'schedule_time' => 'nullable|date_format:H:i',
+                'schedule_days' => 'nullable|array',
+            ]);
 
-        $teacher = $this->getCurrentTeacher();
+            $teacher = $this->getCurrentTeacher();
 
-        // Generate unique class code
-        $classCode = $this->generateUniqueClassCode($request->course, $request->section, $request->year);
+            // Generate unique class code
+            $classCode = $this->generateUniqueClassCode($request->course, $request->section, $request->year);
+            
+            // Clean and prepare the data
+            $name = trim($request->input('name'));
+            $course = trim($request->input('course'));
+            $section = trim($request->input('section'));
+            $subject = $request->input('subject') ? trim($request->input('subject')) : null;
+            $year = trim($request->input('year'));
+            $description = $request->input('description') ? trim($request->input('description')) : null;
+            $scheduleTime = $request->input('schedule_time');
+            $scheduleDays = $request->input('schedule_days', []);
 
-        $class = ClassModel::create([
-            'name' => $request->name,
-            'course' => $request->course,
-            'class_code' => $classCode,
-            'section' => $request->section,
-            'subject' => $request->subject,
-            'year' => $request->year,
-            'description' => $request->description,
-            'schedule_time' => $request->schedule_time,
-            'schedule_days' => $request->schedule_days,
-            'teacher_id' => $teacher->id,
-            'is_active' => true
-        ]);
+            // Create the class using raw SQL to handle boolean properly
+            $classId = DB::select("
+                INSERT INTO class_models (name, course, class_code, section, subject, year, description, teacher_id, schedule_time, schedule_days, is_active, created_at, updated_at) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, true, now(), now()) 
+                RETURNING id
+            ", [
+                $name,
+                $course,
+                $classCode,
+                $section,
+                $subject,
+                $year,
+                $description,
+                $teacher->id,
+                $scheduleTime,
+                json_encode($scheduleDays)
+            ])[0]->id;
+            
+            $class = ClassModel::find($classId);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Class created successfully',
-            'class' => $class
-        ]);
+            return redirect()->route('teacher.classes')->with('success', 'Class created successfully!');
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return back()->withErrors($e->errors())->withInput();
+        } catch (\Exception $e) {
+            Log::error('Failed to create class: ' . $e->getMessage());
+            return back()->withErrors(['error' => 'Failed to create class. Please try again.'])->withInput();
+        }
     }
 
     /**
@@ -161,27 +181,41 @@ class TeacherController extends Controller
      */
     public function updateClass(Request $request, $id)
     {
-        $request->validate([
-            'name' => 'required|string|max:255',
-            'course' => 'required|string|max:100|unique:class_models,course,' . $id,
-            'section' => 'required|string|max:10',
-            'subject' => 'nullable|string|max:255',
-            'year' => 'required|string|max:20',
-            'description' => 'nullable|string',
-            'schedule_time' => 'nullable|date_format:H:i',
-            'schedule_days' => 'nullable|array'
-        ]);
+        try {
+            $request->validate([
+                'name' => 'required|string|max:255',
+                'course' => 'required|string|max:100',
+                'section' => 'required|string|max:10',
+                'subject' => 'nullable|string|max:255',
+                'year' => 'required|string|max:20',
+                'description' => 'nullable|string',
+                'schedule_time' => 'nullable|date_format:H:i',
+                'schedule_days' => 'nullable|array'
+            ]);
 
-        $teacher = $this->getCurrentTeacher();
-        $class = ClassModel::forTeacher($teacher->id)->findOrFail($id);
+            $teacher = $this->getCurrentTeacher();
+            $class = ClassModel::where('teacher_id', $teacher->id)->findOrFail($id);
 
-        $class->update($request->all());
+            $class->update([
+                'name' => trim($request->name),
+                'course' => trim($request->course),
+                'section' => trim($request->section),
+                'subject' => $request->subject ? trim($request->subject) : null,
+                'year' => trim($request->year),
+                'description' => $request->description ? trim($request->description) : null,
+                'schedule_time' => $request->schedule_time,
+                'schedule_days' => $request->schedule_days ?? [],
+                'is_active' => DB::raw('true')
+            ]);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Class updated successfully',
-            'class' => $class
-        ]);
+            return redirect()->route('teacher.classes')->with('success', 'Class updated successfully!');
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return back()->withErrors($e->errors())->withInput();
+        } catch (\Exception $e) {
+            Log::error('Failed to update class: ' . $e->getMessage());
+            return back()->withErrors(['error' => 'Failed to update class. Please try again.'])->withInput();
+        }
     }
 
     /**
@@ -189,15 +223,18 @@ class TeacherController extends Controller
      */
     public function deleteClass($id)
     {
-        $teacher = $this->getCurrentTeacher();
-        $class = ClassModel::forTeacher($teacher->id)->findOrFail($id);
+        try {
+            $teacher = $this->getCurrentTeacher();
+            $class = ClassModel::where('teacher_id', $teacher->id)->findOrFail($id);
 
-        $class->update(['is_active' => false]);
+            $class->update(['is_active' => false]);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Class deleted successfully'
-        ]);
+            return redirect()->route('teacher.classes')->with('success', 'Class deleted successfully!');
+
+        } catch (\Exception $e) {
+            Log::error('Failed to delete class: ' . $e->getMessage());
+            return back()->withErrors(['error' => 'Failed to delete class. Please try again.']);
+        }
     }
 
     /**
@@ -227,6 +264,82 @@ class TeacherController extends Controller
                 'course' => $class->course,
                 'section' => $class->section
             ]
+        ]);
+    }
+
+    /**
+     * Search for existing students in the database
+     */
+    public function searchStudents(Request $request)
+    {
+        $request->validate([
+            'search' => 'required|string|min:2'
+        ]);
+
+        $searchTerm = $request->search;
+        
+        // Search students by name, student_id, or email
+        $students = Student::where(function($query) use ($searchTerm) {
+                        $query->where('name', 'ILIKE', "%{$searchTerm}%")
+                              ->orWhere('student_id', 'ILIKE', "%{$searchTerm}%")
+                              ->orWhere('email', 'ILIKE', "%{$searchTerm}%");
+                    })
+                    ->whereRaw('is_active = true')
+                    ->limit(20)
+                    ->get(['id', 'student_id', 'name', 'email', 'course', 'year', 'section']);
+
+        return response()->json([
+            'success' => true,
+            'students' => $students
+        ]);
+    }
+
+    /**
+     * Add existing students from database to a class
+     */
+    public function addExistingStudentsToClass(Request $request, $classId)
+    {
+        $request->validate([
+            'student_ids' => 'required|array',
+            'student_ids.*' => 'required|integer|exists:students,id'
+        ]);
+
+        $teacher = $this->getCurrentTeacher();
+        $class = ClassModel::forTeacher($teacher->id)->findOrFail($classId);
+
+        $addedStudents = [];
+        $skippedCount = 0;
+
+        foreach ($request->student_ids as $studentId) {
+            // Check if student is already enrolled
+            $exists = DB::table('class_student')
+                       ->where('class_model_id', $classId)
+                       ->where('student_id', $studentId)
+                       ->exists();
+
+            if (!$exists) {
+                DB::table('class_student')->insert([
+                    'class_model_id' => $classId,
+                    'student_id' => $studentId,
+                    'status' => 'enrolled',
+                    'enrolled_at' => now(),
+                    'created_at' => now(),
+                    'updated_at' => now()
+                ]);
+
+                $student = Student::find($studentId);
+                $addedStudents[] = $student;
+            } else {
+                $skippedCount++;
+            }
+        }
+
+        // Return an Inertia response for proper handling
+        return redirect()->back()->with([
+            'success' => true,
+            'message' => count($addedStudents) . ' students added successfully' . 
+                        ($skippedCount > 0 ? " ({$skippedCount} already enrolled)" : ''),
+            'addedStudents' => $addedStudents
         ]);
     }
 
@@ -273,7 +386,7 @@ class TeacherController extends Controller
                     'year' => $studentData['year'],
                     'course' => $studentData['course'],
                     'section' => $studentData['section'],
-                    'is_active' => true
+                    'is_active' => DB::raw('true')
                 ];
             }
         }
@@ -284,11 +397,26 @@ class TeacherController extends Controller
         $addedStudents = [];
 
         foreach ($students as $studentData) {
-            // Create or find student
-            $student = Student::firstOrCreate(
-                ['student_id' => $studentData['student_id']],
-                $studentData
-            );
+            // Find existing student first
+            $student = Student::where('student_id', $studentData['student_id'])->first();
+            
+            if (!$student) {
+                // Create new student using raw SQL to handle boolean properly
+                $studentId = DB::select("
+                    INSERT INTO students (student_id, name, email, year, course, section, is_active, created_at, updated_at) 
+                    VALUES (?, ?, ?, ?, ?, ?, true, now(), now()) 
+                    RETURNING id
+                ", [
+                    $studentData['student_id'],
+                    $studentData['name'],
+                    $studentData['email'],
+                    $studentData['year'],
+                    $studentData['course'],
+                    $studentData['section']
+                ])[0]->id;
+                
+                $student = Student::find($studentId);
+            }
 
             // Attach to class using direct DB insertion since the relationship might not be properly set up
             $exists = DB::table('class_student')
@@ -407,12 +535,13 @@ class TeacherController extends Controller
             'qr_code' => $qrCode
         ]);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Quick session started successfully',
-            'session' => $session,
-            'redirect' => route('teacher.attendance.session', $session->id)
-        ]);
+        // Return an Inertia redirect to the session page
+        return redirect()->route('teacher.attendance.session', $session->id)
+                         ->with([
+                             'success' => true,
+                             'message' => 'Quick session started successfully',
+                             'session' => $session
+                         ]);
     }
 
     /**
@@ -476,9 +605,9 @@ class TeacherController extends Controller
     public function markAttendance(Request $request, $sessionId)
     {
         $request->validate([
-            'student_id' => 'required|exists:students,id',
+            'student_id' => 'required|string', // Accept student_id as string (e.g., "23-62514")
             'status' => 'required|in:present,absent,excused,late',
-            'method' => 'required|in:qr,manual,webcam',
+            'method' => 'required|in:qr,manual,webcam,file_upload',
             'notes' => 'nullable|string'
         ]);
 
@@ -486,10 +615,33 @@ class TeacherController extends Controller
         $session = AttendanceSession::where('teacher_id', $teacher->id)
                                    ->findOrFail($sessionId);
 
+        // Find student by student_id (string like "23-62514")
+        $student = Student::where('student_id', $request->student_id)->first();
+        
+        if (!$student) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Student not found with ID: ' . $request->student_id
+            ], 404);
+        }
+
+        // Verify the student is enrolled in this class
+        $isEnrolled = DB::table('class_student')
+                       ->where('class_model_id', $session->class_id)
+                       ->where('student_id', $student->id) // Use the database ID for the pivot table
+                       ->exists();
+
+        if (!$isEnrolled) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Student is not enrolled in this class'
+            ], 403);
+        }
+
         $record = AttendanceRecord::updateOrCreate(
             [
                 'attendance_session_id' => $sessionId,
-                'student_id' => $request->student_id
+                'student_id' => $student->id // Use the database ID for attendance records
             ],
             [
                 'status' => $request->status,
@@ -499,13 +651,16 @@ class TeacherController extends Controller
             ]
         );
 
-        // Update session counts
-        $session->updateCounts();
+        // Update session counts if the method exists
+        if (method_exists($session, 'updateCounts')) {
+            $session->updateCounts();
+        }
 
         return response()->json([
             'success' => true,
             'message' => 'Attendance marked successfully',
-            'record' => $record
+            'record' => $record,
+            'student' => $student
         ]);
     }
 
@@ -670,11 +825,94 @@ class TeacherController extends Controller
             'end_time' => now()
         ]);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Attendance session ended successfully',
-            'session' => $session
-        ]);
+        // Return an Inertia redirect response
+        return redirect()->route('teacher.attendance')
+                         ->with([
+                             'success' => true,
+                             'message' => 'Attendance session ended successfully',
+                             'session' => $session
+                         ]);
+    }
+
+    /**
+     * Delete attendance session
+     */
+    public function deleteAttendanceSession($sessionId)
+    {
+        $teacher = $this->getCurrentTeacher();
+        $session = AttendanceSession::where('teacher_id', $teacher->id)
+                                   ->findOrFail($sessionId);
+
+        // Delete attendance records first (cascade should handle this, but let's be explicit)
+        AttendanceRecord::where('attendance_session_id', $sessionId)->delete();
+        
+        // Delete the session
+        $sessionName = $session->session_name;
+        $session->delete();
+
+        // Return an Inertia redirect response
+        return redirect()->route('teacher.attendance')
+                         ->with([
+                             'success' => true,
+                             'message' => "Attendance session '{$sessionName}' deleted successfully"
+                         ]);
+    }
+
+    /**
+     * Export attendance session as CSV
+     */
+    public function exportAttendanceSession($sessionId)
+    {
+        $teacher = $this->getCurrentTeacher();
+        $session = AttendanceSession::with(['class'])
+                                   ->where('teacher_id', $teacher->id)
+                                   ->findOrFail($sessionId);
+
+        // Get attendance records with student details
+        $records = DB::table('attendance_records')
+                    ->join('students', 'attendance_records.student_id', '=', 'students.id')
+                    ->where('attendance_session_id', $sessionId)
+                    ->select(
+                        'students.student_id',
+                        'students.name',
+                        'students.email',
+                        'students.course',
+                        'students.section',
+                        'attendance_records.status',
+                        'attendance_records.marked_at',
+                        'attendance_records.marked_by'
+                    )
+                    ->orderBy('students.name')
+                    ->get();
+
+        // Create CSV content
+        $csv = "Student ID,Name,Email,Course,Section,Status,Marked At,Marked By\n";
+        
+        foreach ($records as $record) {
+            $csv .= sprintf(
+                '"%s","%s","%s","%s","%s","%s","%s","%s"' . "\n",
+                $record->student_id,
+                $record->name,
+                $record->email,
+                $record->course,
+                $record->section,
+                ucfirst($record->status),
+                $record->marked_at,
+                ucfirst($record->marked_by)
+            );
+        }
+
+        // Set headers for CSV download
+        $filename = sprintf(
+            'attendance_%s_%s_%s.csv',
+            str_replace(' ', '_', $session->class->name ?? 'class'),
+            $session->session_date,
+            date('His')
+        );
+
+        return response($csv)
+            ->header('Content-Type', 'text/csv')
+            ->header('Content-Disposition', 'attachment; filename="' . $filename . '"');
     }
 
     /**
@@ -816,30 +1054,82 @@ class TeacherController extends Controller
     private function getDashboardStats($teacher)
     {
         $today = Carbon::today();
+        $weekStart = Carbon::now()->startOfWeek();
+        $monthStart = Carbon::now()->startOfMonth();
         
-        // Get total classes and students using simple queries
+        // Get total classes for this teacher
         $totalClasses = DB::table('class_models')
                            ->where('teacher_id', $teacher->id)
+                           ->whereRaw('is_active = true')
                            ->count();
         
-        $totalStudents = DB::table('students')->count();
+        // Get total students enrolled in this teacher's classes
+        $totalStudents = DB::table('class_student')
+                            ->join('class_models', 'class_student.class_model_id', '=', 'class_models.id')
+                            ->where('class_models.teacher_id', $teacher->id)
+                            ->whereRaw('class_models.is_active = true')
+                            ->distinct('class_student.student_id')
+                            ->count('class_student.student_id');
         
-        // Get today's attendance sessions count (if any exist)
+        // Get today's attendance sessions count
         $todaySessions = DB::table('attendance_sessions')
                             ->where('teacher_id', $teacher->id)
                             ->whereDate('session_date', $today)
                             ->count();
 
+        // Calculate today's attendance stats
+        $todayAttendance = DB::table('attendance_records')
+                            ->join('attendance_sessions', 'attendance_records.attendance_session_id', '=', 'attendance_sessions.id')
+                            ->where('attendance_sessions.teacher_id', $teacher->id)
+                            ->whereDate('attendance_sessions.session_date', $today)
+                            ->selectRaw('
+                                SUM(CASE WHEN attendance_records.status = \'present\' THEN 1 ELSE 0 END) as present,
+                                SUM(CASE WHEN attendance_records.status = \'absent\' THEN 1 ELSE 0 END) as absent,
+                                SUM(CASE WHEN attendance_records.status = \'excused\' THEN 1 ELSE 0 END) as excused,
+                                SUM(CASE WHEN attendance_records.status = \'late\' THEN 1 ELSE 0 END) as late
+                            ')
+                            ->first();
+
+        // Calculate weekly attendance rate
+        $weeklyStats = DB::table('attendance_records')
+                        ->join('attendance_sessions', 'attendance_records.attendance_session_id', '=', 'attendance_sessions.id')
+                        ->where('attendance_sessions.teacher_id', $teacher->id)
+                        ->whereDate('attendance_sessions.session_date', '>=', $weekStart)
+                        ->selectRaw('
+                            COUNT(*) as total_records,
+                            SUM(CASE WHEN attendance_records.status IN (\'present\', \'late\') THEN 1 ELSE 0 END) as present_records
+                        ')
+                        ->first();
+
+        $weeklyAttendanceRate = $weeklyStats->total_records > 0 
+                               ? round(($weeklyStats->present_records / $weeklyStats->total_records) * 100, 1) 
+                               : 0;
+
+        // Calculate monthly attendance rate
+        $monthlyStats = DB::table('attendance_records')
+                         ->join('attendance_sessions', 'attendance_records.attendance_session_id', '=', 'attendance_sessions.id')
+                         ->where('attendance_sessions.teacher_id', $teacher->id)
+                         ->whereDate('attendance_sessions.session_date', '>=', $monthStart)
+                         ->selectRaw('
+                             COUNT(*) as total_records,
+                             SUM(CASE WHEN attendance_records.status IN (\'present\', \'late\') THEN 1 ELSE 0 END) as present_records
+                         ')
+                         ->first();
+
+        $monthlyAttendanceRate = $monthlyStats->total_records > 0 
+                                ? round(($monthlyStats->present_records / $monthlyStats->total_records) * 100, 1) 
+                                : 0;
+
         return [
             'totalClasses' => $totalClasses,
             'totalStudents' => $totalStudents,
-            'todayPresent' => 0, // Will be calculated once attendance data exists
-            'todayAbsent' => 0,
-            'todayExcused' => 0,
-            'todayDropped' => 0,
+            'todayPresent' => $todayAttendance->present ?? 0,
+            'todayAbsent' => $todayAttendance->absent ?? 0,
+            'todayExcused' => $todayAttendance->excused ?? 0,
+            'todayLate' => $todayAttendance->late ?? 0,
             'todaySessions' => $todaySessions,
-            'weeklyAttendanceRate' => 0, // Will be calculated once attendance data exists
-            'monthlyAttendanceRate' => 0
+            'weeklyAttendanceRate' => $weeklyAttendanceRate,
+            'monthlyAttendanceRate' => $monthlyAttendanceRate
         ];
     }
 
@@ -863,29 +1153,56 @@ class TeacherController extends Controller
      */
     private function getRecentActivity($teacher)
     {
-        // Return mock recent activity data for now
-        return [
-            [
-                'time' => '9:00 AM',
-                'text' => 'Started attendance for Introduction to Programming',
-                'type' => 'info'
-            ],
-            [
-                'time' => '8:45 AM',
-                'text' => 'Updated class schedule for Data Structures',
-                'type' => 'success'
-            ],
-            [
-                'time' => '8:30 AM',
-                'text' => 'New student enrolled in class',
-                'type' => 'success'
-            ],
-            [
-                'time' => '8:15 AM',
-                'text' => 'Attendance reminder sent to students',
-                'type' => 'info'
-            ]
-        ];
+        $activities = [];
+        
+        // Get recent attendance sessions
+        $recentSessions = DB::table('attendance_sessions')
+                           ->join('class_models', 'attendance_sessions.class_id', '=', 'class_models.id')
+                           ->where('attendance_sessions.teacher_id', $teacher->id)
+                           ->orderBy('attendance_sessions.created_at', 'desc')
+                           ->limit(5)
+                           ->select(
+                               'attendance_sessions.session_name',
+                               'attendance_sessions.created_at',
+                               'attendance_sessions.status',
+                               'class_models.name as class_name'
+                           )
+                           ->get();
+
+        foreach ($recentSessions as $session) {
+            $time = Carbon::parse($session->created_at)->format('g:i A');
+            $activities[] = [
+                'time' => $time,
+                'text' => "Started attendance session: {$session->session_name} for {$session->class_name}",
+                'type' => $session->status === 'active' ? 'info' : 'success'
+            ];
+        }
+
+        // Get recent class updates
+        $recentClasses = DB::table('class_models')
+                          ->where('teacher_id', $teacher->id)
+                          ->orderBy('updated_at', 'desc')
+                          ->limit(3)
+                          ->select('name', 'updated_at', 'created_at')
+                          ->get();
+
+        foreach ($recentClasses as $class) {
+            $time = Carbon::parse($class->updated_at)->format('g:i A');
+            $isNew = Carbon::parse($class->created_at)->diffInDays(Carbon::parse($class->updated_at)) < 1;
+            
+            $activities[] = [
+                'time' => $time,
+                'text' => $isNew ? "Created new class: {$class->name}" : "Updated class: {$class->name}",
+                'type' => $isNew ? 'success' : 'info'
+            ];
+        }
+
+        // Sort by time (assuming today's activities)
+        usort($activities, function($a, $b) {
+            return strtotime($b['time']) - strtotime($a['time']);
+        });
+
+        return array_slice($activities, 0, 6);
     }
 
     /**
@@ -895,12 +1212,13 @@ class TeacherController extends Controller
     {
         $teacher = $this->getCurrentTeacher();
         
-        // Get teacher's classes
-        $classes = DB::table('classes')
+        // Get teacher's classes from class_models table
+        $classes = DB::table('class_models')
                      ->where('teacher_id', $teacher->id)
+                     ->whereRaw('is_active = true')
                      ->get()
                      ->map(function ($class) {
-                                                  $studentCount = DB::table('class_student')
+                         $studentCount = DB::table('class_student')
                                           ->where('class_model_id', $class->id)
                                           ->count();
                          
@@ -914,15 +1232,17 @@ class TeacherController extends Controller
 
         // Get recent attendance sessions
         $recentSessions = DB::table('attendance_sessions')
-                           ->join('classes', 'attendance_sessions.class_id', '=', 'classes.id')
-                           ->where('classes.teacher_id', $teacher->id)
+                           ->join('class_models', 'attendance_sessions.class_id', '=', 'class_models.id')
+                           ->where('class_models.teacher_id', $teacher->id)
                            ->orderBy('attendance_sessions.created_at', 'desc')
-                           ->take(5)
+                           ->take(10)
                            ->get([
                                'attendance_sessions.id',
-                               'classes.name as class_name',
-                               'classes.course',
-                               'attendance_sessions.created_at',
+                               'attendance_sessions.session_name',
+                               'class_models.name as class_name',
+                               'class_models.course',
+                               'attendance_sessions.session_date',
+                               'attendance_sessions.start_time',
                                'attendance_sessions.status'
                            ])
                            ->map(function ($session) {
@@ -930,18 +1250,20 @@ class TeacherController extends Controller
                                                    ->where('attendance_session_id', $session->id)
                                                    ->selectRaw("
                                                        COUNT(*) as total_count,
-                                                       SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as present_count
+                                                       SUM(CASE WHEN status IN ('present', 'late') THEN 1 ELSE 0 END) as present_count
                                                    ")
                                                    ->first();
 
-                               $date = Carbon::parse($session->created_at);
+                               $date = Carbon::parse($session->session_date);
+                               $time = Carbon::parse($session->start_time);
                                
                                return [
                                    'id' => $session->id,
+                                   'session_name' => $session->session_name,
                                    'class_name' => $session->class_name,
                                    'course_code' => $session->course ?? 'N/A',
                                    'date' => $date->format('M d, Y'),
-                                   'time' => $date->format('g:i A'),
+                                   'time' => $time->format('g:i A'),
                                    'present_count' => $attendanceStats->present_count ?? 0,
                                    'total_count' => $attendanceStats->total_count ?? 0,
                                    'status' => $session->status ?? 'active',
@@ -979,7 +1301,7 @@ class TeacherController extends Controller
         $teacher = $this->getCurrentTeacher();
 
         // Get summary data for the reports dashboard
-        $classes = DB::table('classes')
+        $classes = DB::table('class_models')
                     ->where('teacher_id', $teacher->id)
                     ->get();
 
@@ -1038,15 +1360,15 @@ class TeacherController extends Controller
     {
         $teacher = $this->getCurrentTeacher();
         
-        $classes = DB::table('classes')
+        $classes = DB::table('class_models')
                     ->where('teacher_id', $teacher->id)
                     ->get();
 
         $selectedClassId = $request->get('class_id');
         
         $query = DB::table('attendance_sessions')
-                   ->join('classes', 'attendance_sessions.class_id', '=', 'classes.id')
-                   ->where('classes.teacher_id', $teacher->id);
+                   ->join('class_models', 'attendance_sessions.class_id', '=', 'class_models.id')
+                   ->where('class_models.teacher_id', $teacher->id);
 
         if ($selectedClassId) {
             $query->where('attendance_sessions.class_id', $selectedClassId);
@@ -1055,9 +1377,9 @@ class TeacherController extends Controller
         $sessions = $query->orderBy('attendance_sessions.session_date', 'desc')
                          ->select(
                              'attendance_sessions.*',
-                             'classes.name as class_name',
-                             'classes.course',
-                             'classes.section'
+                             'class_models.name as class_name',
+                             'class_models.course',
+                             'class_models.section'
                          )
                          ->get();
 
@@ -1102,8 +1424,8 @@ class TeacherController extends Controller
         $endDate = $request->get('end_date');
 
         $query = DB::table('attendance_sessions')
-                   ->join('classes', 'attendance_sessions.class_id', '=', 'classes.id')
-                   ->where('classes.teacher_id', $teacher->id);
+                   ->join('class_models', 'attendance_sessions.class_id', '=', 'class_models.id')
+                   ->where('class_models.teacher_id', $teacher->id);
 
         if ($classId) {
             $query->where('attendance_sessions.class_id', $classId);
@@ -1133,7 +1455,8 @@ class TeacherController extends Controller
     {
         $teacher = $this->getCurrentTeacher();
         
-        $classes = DB::table('classes')
+        // Fix: Query class_models table instead of classes
+        $classes = DB::table('class_models')
                     ->where('teacher_id', $teacher->id)
                     ->get();
 
@@ -1159,7 +1482,7 @@ class TeacherController extends Controller
                                     ->join('attendance_sessions', 'attendance_records.attendance_session_id', '=', 'attendance_sessions.id')
                                     ->where('attendance_sessions.class_id', $class->id)
                                     ->where('attendance_records.student_id', $student->id)
-                                    ->where('attendance_records.status', 'present')
+                                    ->whereRaw("attendance_records.status = 'present'")
                                     ->count();
 
                 $attendanceRate = $totalSessions > 0 ? ($presentSessions / $totalSessions) * 100 : 0;
@@ -1191,7 +1514,8 @@ class TeacherController extends Controller
     {
         $teacher = $this->getCurrentTeacher();
         
-        $classes = DB::table('classes')
+        // Fix: Query class_models table instead of classes
+        $classes = DB::table('class_models')
                     ->where('teacher_id', $teacher->id)
                     ->get();
 
@@ -1284,9 +1608,9 @@ class TeacherController extends Controller
         
         // Verify the session belongs to the teacher
         $session = DB::table('attendance_sessions')
-                    ->join('classes', 'attendance_sessions.class_id', '=', 'classes.id')
+                    ->join('class_models', 'attendance_sessions.class_id', '=', 'class_models.id')
                     ->where('attendance_sessions.id', $sessionId)
-                    ->where('classes.teacher_id', $teacher->id)
+                    ->where('class_models.teacher_id', $teacher->id)
                     ->first();
 
         if (!$session) {
@@ -1387,6 +1711,86 @@ class TeacherController extends Controller
             'students' => $students,
             'attendance_records' => $attendanceRecords
         ]);
+    }
+
+    /**
+     * Upload attendance file and process records
+     */
+    public function uploadAttendanceFile(Request $request, $sessionId)
+    {
+        $request->validate([
+            'file' => 'required|file|mimes:csv,xlsx,xls|max:2048'
+        ]);
+
+        $teacher = $this->getCurrentTeacher();
+        $session = AttendanceSession::where('teacher_id', $teacher->id)->findOrFail($sessionId);
+
+        try {
+            $file = $request->file('file');
+            $path = $file->getRealPath();
+            $extension = $file->getClientOriginalExtension();
+
+            $students = [];
+            $processedCount = 0;
+
+            if ($extension === 'csv') {
+                // Process CSV file
+                if (($handle = fopen($path, 'r')) !== FALSE) {
+                    $header = fgetcsv($handle); // Skip header row
+                    
+                    while (($data = fgetcsv($handle)) !== FALSE) {
+                        if (count($data) >= 2) {
+                            $studentId = trim($data[0]);
+                            $status = strtolower(trim($data[1]));
+                            
+                            if (in_array($status, ['present', 'absent', 'late', 'excused'])) {
+                                $student = Student::where('student_id', $studentId)->first();
+                                
+                                if ($student) {
+                                    // Check if student is in this class
+                                    $isEnrolled = DB::table('class_student')
+                                                   ->where('class_model_id', $session->class_id)
+                                                   ->where('student_id', $student->id)
+                                                   ->exists();
+                                    
+                                    if ($isEnrolled) {
+                                        AttendanceRecord::updateOrCreate(
+                                            [
+                                                'attendance_session_id' => $sessionId,
+                                                'student_id' => $student->id
+                                            ],
+                                            [
+                                                'status' => $status,
+                                                'method' => 'file_upload',
+                                                'marked_at' => now()
+                                            ]
+                                        );
+                                        
+                                        $students[] = ['student_id' => $student->id];
+                                        $processedCount++;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    fclose($handle);
+                }
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Attendance file processed successfully',
+                'processed' => $processedCount,
+                'records' => $students
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to process attendance file: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to process attendance file: ' . $e->getMessage()
+            ], 500);
+        }
     }
 
     /**

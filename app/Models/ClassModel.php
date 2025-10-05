@@ -27,8 +27,15 @@ class ClassModel extends Model
 
     protected $casts = [
         'schedule_days' => 'array',
-        'is_active' => 'boolean'
+        'is_active' => 'boolean',
+        'schedule_time' => 'datetime:H:i',
     ];
+
+    // Ensure boolean values are properly handled
+    public function setIsActiveAttribute($value)
+    {
+        $this->attributes['is_active'] = (bool) $value;
+    }
 
     public function teacher()
     {

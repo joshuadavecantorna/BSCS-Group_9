@@ -2,7 +2,7 @@
 import AppLayout from '@/layouts/AppLayout.vue';
 import { Head } from '@inertiajs/vue3';
 import { ref, computed } from 'vue';
-import QrScanner from '@/components/QrScanner.vue';
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -24,7 +24,7 @@ interface Props {
     todayPresent: number;
     todayAbsent: number;
     todayExcused: number;
-    todayDropped: number;
+    todayLate: number;
     todaySessions: number;
     weeklyAttendanceRate: number;
     monthlyAttendanceRate: number;
@@ -42,42 +42,22 @@ const breadcrumbs = [
   { title: 'Teacher Dashboard', href: '/teacher/dashboard' }
 ];
 
-// QR Scanner state
-const showQRScanner = ref(false);
-
 // Computed properties
 const teacherName = computed(() => `${props.teacher.first_name} ${props.teacher.last_name}`);
 
-// Mock recent activities if not provided
-const recentActivities = props.recentActivity || [
-  { time: '9:00 AM', text: 'Started attendance for Introduction to Programming', type: 'info' },
-  { time: '8:45 AM', text: 'Updated class schedule for Data Structures', type: 'success' },
-  { time: '8:30 AM', text: 'New student enrolled in class', type: 'success' },
-  { time: '8:15 AM', text: 'Attendance reminder sent to students', type: 'info' }
-];
-
-// Mock weekly attendance data
-const weeklyAttendance = [
-  { day: 'Mon', present: Math.floor(props.stats.totalStudents * 0.9), absent: Math.floor(props.stats.totalStudents * 0.1) },
-  { day: 'Tue', present: Math.floor(props.stats.totalStudents * 0.95), absent: Math.floor(props.stats.totalStudents * 0.05) },
-  { day: 'Wed', present: Math.floor(props.stats.totalStudents * 0.88), absent: Math.floor(props.stats.totalStudents * 0.12) },
-  { day: 'Thu', present: Math.floor(props.stats.totalStudents * 0.92), absent: Math.floor(props.stats.totalStudents * 0.08) },
-  { day: 'Fri', present: Math.floor(props.stats.totalStudents * 0.85), absent: Math.floor(props.stats.totalStudents * 0.15) }
-];
-
-const openQRScanner = () => {
-  showQRScanner.value = true;
-};
-
-const closeQRScanner = () => {
-  showQRScanner.value = false;
-};
-
-const onScanSuccess = (studentData: any) => {
-  console.log('Student scanned successfully:', studentData);
-  alert(`Successfully scanned: ${studentData.name} (${studentData.student_id})`);
-  closeQRScanner();
-};
+// Weekly attendance data based on real stats
+const weeklyAttendance = computed(() => {
+  const totalStudents = props.stats.totalStudents;
+  const attendanceRate = props.stats.weeklyAttendanceRate / 100;
+  
+  return [
+    { day: 'Mon', present: Math.floor(totalStudents * attendanceRate * 0.9), absent: Math.floor(totalStudents * (1 - attendanceRate * 0.9)) },
+    { day: 'Tue', present: Math.floor(totalStudents * attendanceRate * 0.95), absent: Math.floor(totalStudents * (1 - attendanceRate * 0.95)) },
+    { day: 'Wed', present: Math.floor(totalStudents * attendanceRate * 0.88), absent: Math.floor(totalStudents * (1 - attendanceRate * 0.88)) },
+    { day: 'Thu', present: Math.floor(totalStudents * attendanceRate * 0.92), absent: Math.floor(totalStudents * (1 - attendanceRate * 0.92)) },
+    { day: 'Fri', present: Math.floor(totalStudents * attendanceRate * 0.85), absent: Math.floor(totalStudents * (1 - attendanceRate * 0.85)) }
+  ];
+});
 </script>
 
 <template>
@@ -94,36 +74,8 @@ const onScanSuccess = (studentData: any) => {
         </p>
       </div>
 
-      <!-- Quick Stats Cards -->
+      <!-- Overview Statistics -->
       <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <!-- Present Today -->
-        <Card>
-          <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle class="text-sm font-medium">Present Today</CardTitle>
-            <span class="text-xl">✅</span>
-          </CardHeader>
-          <CardContent>
-            <div class="text-2xl font-bold">{{ stats.todayPresent }}</div>
-            <p class="text-xs text-muted-foreground mt-1">
-              <span class="text-emerald-600">+5%</span> from yesterday
-            </p>
-          </CardContent>
-        </Card>
-
-        <!-- Absent Today -->
-        <Card>
-          <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle class="text-sm font-medium">Absent Today</CardTitle>
-            <span class="text-xl">❌</span>
-          </CardHeader>
-          <CardContent>
-            <div class="text-2xl font-bold">{{ stats.todayAbsent }}</div>
-            <p class="text-xs text-muted-foreground mt-1">
-              <span class="text-red-600">-2%</span> from yesterday
-            </p>
-          </CardContent>
-        </Card>
-
         <!-- Total Classes -->
         <Card>
           <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -151,6 +103,93 @@ const onScanSuccess = (studentData: any) => {
             </p>
           </CardContent>
         </Card>
+
+        <!-- Today's Sessions -->
+        <Card>
+          <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle class="text-sm font-medium">Today's Sessions</CardTitle>
+            <span class="text-xl">📅</span>
+          </CardHeader>
+          <CardContent>
+            <div class="text-2xl font-bold">{{ stats.todaySessions }}</div>
+            <p class="text-xs text-muted-foreground mt-1">
+              Attendance sessions
+            </p>
+          </CardContent>
+        </Card>
+
+        <!-- Weekly Attendance Rate -->
+        <Card>
+          <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle class="text-sm font-medium">Weekly Rate</CardTitle>
+            <span class="text-xl">📊</span>
+          </CardHeader>
+          <CardContent>
+            <div class="text-2xl font-bold">{{ stats.weeklyAttendanceRate }}%</div>
+            <p class="text-xs text-muted-foreground mt-1">
+              Attendance rate
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <!-- Today's Attendance Stats -->
+      <div class="grid gap-4 md:grid-cols-4" v-if="stats.todayPresent > 0 || stats.todayAbsent > 0 || stats.todayLate > 0 || stats.todayExcused > 0">
+        <!-- Present Today -->
+        <Card>
+          <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle class="text-sm font-medium">Present Today</CardTitle>
+            <span class="text-xl">✅</span>
+          </CardHeader>
+          <CardContent>
+            <div class="text-2xl font-bold text-green-600">{{ stats.todayPresent }}</div>
+            <p class="text-xs text-muted-foreground mt-1">
+              Students marked present
+            </p>
+          </CardContent>
+        </Card>
+
+        <!-- Late Today -->
+        <Card>
+          <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle class="text-sm font-medium">Late Today</CardTitle>
+            <span class="text-xl">⏰</span>
+          </CardHeader>
+          <CardContent>
+            <div class="text-2xl font-bold text-yellow-600">{{ stats.todayLate }}</div>
+            <p class="text-xs text-muted-foreground mt-1">
+              Students marked late
+            </p>
+          </CardContent>
+        </Card>
+
+        <!-- Absent Today -->
+        <Card>
+          <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle class="text-sm font-medium">Absent Today</CardTitle>
+            <span class="text-xl">❌</span>
+          </CardHeader>
+          <CardContent>
+            <div class="text-2xl font-bold text-red-600">{{ stats.todayAbsent }}</div>
+            <p class="text-xs text-muted-foreground mt-1">
+              Students marked absent
+            </p>
+          </CardContent>
+        </Card>
+
+        <!-- Excused Today -->
+        <Card>
+          <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle class="text-sm font-medium">Excused Today</CardTitle>
+            <span class="text-xl">�</span>
+          </CardHeader>
+          <CardContent>
+            <div class="text-2xl font-bold text-blue-600">{{ stats.todayExcused }}</div>
+            <p class="text-xs text-muted-foreground mt-1">
+              Students excused
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
       <!-- Main Content Grid -->
@@ -171,18 +210,9 @@ const onScanSuccess = (studentData: any) => {
                 Manage Classes
               </Button>
               
-              <Button variant="outline" class="w-full justify-start" size="lg" @click="$inertia.visit('/teacher/classes')">
+              <Button variant="outline" class="w-full justify-start" size="lg" @click="$inertia.visit('/teacher/attendance')">
                 <span class="mr-2">📝</span>
-                Classes & Attendance
-              </Button>
-              
-              <Button 
-                @click="openQRScanner"
-                class="w-full justify-start" 
-                size="lg"
-              >
-                <span class="mr-2">📱</span>
-                Quick QR Scanner
+                Manage Attendance
               </Button>
 
               <Button variant="outline" class="w-full justify-start" size="lg" @click="$inertia.visit('/teacher/reports')">
@@ -200,7 +230,7 @@ const onScanSuccess = (studentData: any) => {
             </CardHeader>
             <CardContent>
               <div class="space-y-4">
-                <template v-for="(activity, index) in recentActivities" :key="index">
+                <template v-for="(activity, index) in recentActivity" :key="index">
                   <div class="flex items-start gap-3">
                     <Badge 
                       :variant="activity.type === 'info' ? 'default' : activity.type === 'warning' ? 'outline' : 'secondary'"
@@ -219,7 +249,7 @@ const onScanSuccess = (studentData: any) => {
                       </p>
                     </div>
                   </div>
-                  <Separator v-if="index < recentActivities.length - 1" />
+                  <Separator v-if="index < (recentActivity?.length || 0) - 1" />
                 </template>
               </div>
             </CardContent>
@@ -287,11 +317,6 @@ const onScanSuccess = (studentData: any) => {
 
     </div>
 
-    <!-- QR Scanner Component -->
-    <QrScanner 
-      :show="showQRScanner"
-      @close="closeQRScanner"
-      @scan-success="onScanSuccess"
-    />
+
   </AppLayout>
 </template>

@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useForm } from '@inertiajs/vue3';
 import { Plus, ArrowLeft, Users, Clock, Mail, Phone, UserX } from 'lucide-vue-next';
+import AddStudentDialog from '@/components/teacher/AddStudentDialog.vue';
 
 interface Props {
   teacher: {
@@ -82,6 +83,12 @@ const addStudent = () => {
       addStudentForm.reset();
     }
   });
+};
+
+const handleStudentAdded = (students: any[]) => {
+  showAddStudentDialog.value = false;
+  // Refresh the page to show the new students
+  window.location.reload();
 };
 
 const removeStudent = (studentId: number) => {
@@ -256,101 +263,11 @@ const startAttendance = () => {
     </div>
 
     <!-- Add Student Dialog -->
-    <Dialog v-model:open="showAddStudentDialog">
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Add Student to Class</DialogTitle>
-          <DialogDescription>
-            Add a new student to {{ classData.name }}
-          </DialogDescription>
-        </DialogHeader>
-
-        <form @submit.prevent="addStudent" class="space-y-4">
-          <div class="grid gap-2">
-            <Label for="student-id">Student ID</Label>
-            <Input 
-              id="student-id"
-              v-model="addStudentForm.student_id" 
-              placeholder="e.g., STU-2024001"
-              required 
-            />
-          </div>
-
-          <div class="grid grid-cols-2 gap-4">
-            <div>
-              <Label for="first-name">First Name</Label>
-              <Input 
-                id="first-name"
-                v-model="addStudentForm.first_name" 
-                required 
-              />
-            </div>
-            <div>
-              <Label for="last-name">Last Name</Label>
-              <Input 
-                id="last-name"
-                v-model="addStudentForm.last_name" 
-                required 
-              />
-            </div>
-          </div>
-
-          <div class="grid gap-2">
-            <Label for="email">Email</Label>
-            <Input 
-              id="email"
-              type="email"
-              v-model="addStudentForm.email" 
-              placeholder="student@example.com"
-            />
-          </div>
-
-          <div class="grid gap-2">
-            <Label for="phone">Phone (Optional)</Label>
-            <Input 
-              id="phone"
-              v-model="addStudentForm.phone" 
-              placeholder="+63 912 345 6789"
-            />
-          </div>
-
-          <div class="grid grid-cols-3 gap-4">
-            <div>
-              <Label for="year">Year</Label>
-              <Input 
-                id="year"
-                v-model="addStudentForm.year" 
-                required 
-              />
-            </div>
-            <div>
-              <Label for="course">Course</Label>
-              <Input 
-                id="course"
-                v-model="addStudentForm.course" 
-                required 
-              />
-            </div>
-            <div>
-              <Label for="section">Section</Label>
-              <Input 
-                id="section"
-                v-model="addStudentForm.section" 
-                required 
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button type="button" variant="outline" @click="showAddStudentDialog = false">
-              Cancel
-            </Button>
-            <Button type="submit" :disabled="addStudentForm.processing">
-              Add Student
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+    <AddStudentDialog
+      :open="showAddStudentDialog"
+      :class-id="classData.id"
+      @close="showAddStudentDialog = false"
+      @student-added="handleStudentAdded"
+    />
   </AppLayout>
 </template>

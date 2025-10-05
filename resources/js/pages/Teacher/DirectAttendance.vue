@@ -317,50 +317,61 @@ onMounted(() => {
       </div>
 
       <!-- Attendance Summary -->
-      <div class="grid gap-6 md:grid-cols-2">
+      <div class="grid gap-6 lg:grid-cols-2">
         
         <!-- Present Students -->
-        <Card>
-          <CardHeader>
-            <CardTitle class="flex items-center gap-2">
-              <CheckCircle class="h-5 w-5 text-green-600" />
+        <Card class="h-fit">
+          <CardHeader class="pb-3">
+            <CardTitle class="flex items-center gap-2 text-green-700">
+              <CheckCircle class="h-5 w-5" />
               Present Students ({{ presentStudents.length }})
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div class="space-y-2 max-h-64 overflow-y-auto">
+            <div class="space-y-3 max-h-80 overflow-y-auto">
               <div v-for="student in presentStudents" :key="student.id" 
-                   class="flex items-center justify-between p-2 bg-green-50 rounded-lg">
-                <div>
-                  <p class="font-medium">{{ student.name }}</p>
-                  <p class="text-sm text-muted-foreground">{{ student.student_id }}</p>
+                   class="flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition-colors">
+                <div class="flex-1 min-w-0">
+                  <p class="font-medium text-gray-900 truncate">{{ student.name }}</p>
+                  <p class="text-sm text-green-700 font-mono">{{ student.student_id }}</p>
                 </div>
-                <Badge variant="default" class="bg-green-600">Present</Badge>
+                <Badge variant="secondary" class="bg-green-100 text-green-800 border-green-200 shrink-0">
+                  Present
+                </Badge>
               </div>
-              <div v-if="presentStudents.length === 0" class="text-center py-4 text-muted-foreground">
-                No students marked present yet
+              <div v-if="presentStudents.length === 0" class="text-center py-8 text-muted-foreground">
+                <CheckCircle class="h-12 w-12 mx-auto mb-3 opacity-30" />
+                <p class="font-medium">No students marked present yet</p>
+                <p class="text-sm">Use the QR scanner to mark attendance</p>
               </div>
             </div>
           </CardContent>
         </Card>
 
         <!-- Absent Students -->
-        <Card>
-          <CardHeader>
-            <CardTitle class="flex items-center gap-2">
-              <XCircle class="h-5 w-5 text-red-600" />
+        <Card class="h-fit">
+          <CardHeader class="pb-3">
+            <CardTitle class="flex items-center gap-2 text-red-700">
+              <XCircle class="h-5 w-5" />
               Absent Students ({{ absentStudents.length }})
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div class="space-y-2 max-h-64 overflow-y-auto">
+            <div class="space-y-3 max-h-80 overflow-y-auto">
               <div v-for="student in absentStudents" :key="student.id" 
-                   class="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
-                <div>
-                  <p class="font-medium">{{ student.name }}</p>
-                  <p class="text-sm text-muted-foreground">{{ student.student_id }}</p>
+                   class="flex items-center justify-between p-3 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors">
+                <div class="flex-1 min-w-0">
+                  <p class="font-medium text-gray-900 truncate">{{ student.name }}</p>
+                  <p class="text-sm text-red-700 font-mono">{{ student.student_id }}</p>
                 </div>
-                <Badge variant="destructive">Absent</Badge>
+                <Badge variant="secondary" class="bg-red-100 text-red-800 border-red-200 shrink-0">
+                  Absent
+                </Badge>
+              </div>
+              <div v-if="absentStudents.length === 0" class="text-center py-8 text-muted-foreground">
+                <XCircle class="h-12 w-12 mx-auto mb-3 opacity-30" />
+                <p class="font-medium">All students are present!</p>
+                <p class="text-sm">Great job on attendance</p>
               </div>
             </div>
           </CardContent>

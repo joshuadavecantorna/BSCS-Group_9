@@ -16,22 +16,25 @@ import { QrcodeStream } from 'vue-qrcode-reader';
 
 // Props from the StudentController
 interface Props {
-  student?: any;
-  stats?: {
-    attendance_rate: number;
-    present_count: number;
-    absent_count: number;
-    excused_count: number;
-    total_sessions: number;
+  student: {
+    id: number;
+    name: string;
+    student_id: string;
+    email: string;
+    course: string;
+    year: string;
+    section: string;
   };
-  classes?: any[];
-  upcoming_classes?: any[];
-  recent_requests?: any[];
-  recent_attendance?: Array<{
-    class_name: string;
-    session_date: string;
-    status: 'present' | 'absent' | 'excused';
-  }>;
+  stats: {
+    totalClasses: number;
+    attendanceRate: number;
+    presentCount: number;
+    totalAttendance: number;
+  };
+  classes: any[];
+  upcomingClasses: any[];
+  recentRequests: any[];
+  recentAttendance: any[];
 }
 
 const props = defineProps<Props>();
@@ -68,25 +71,26 @@ const attendanceStats = computed(() => {
     };
   }
   
-  const total = stats.total_sessions || 1; // Avoid division by zero
+  const total = stats.totalAttendance || 1; // Avoid division by zero
+  const absentCount = stats.totalAttendance - stats.presentCount;
   return {
-    presentPercentage: Math.round((stats.present_count / total) * 100),
-    absentPercentage: Math.round((stats.absent_count / total) * 100),
-    excusedPercentage: Math.round((stats.excused_count / total) * 100),
-    totalClasses: stats.total_sessions,
-    presentCount: stats.present_count,
-    absentCount: stats.absent_count,
-    excusedCount: stats.excused_count
+    presentPercentage: stats.attendanceRate,
+    absentPercentage: Math.round((absentCount / total) * 100),
+    excusedPercentage: 0, // We don't have excused count in current stats
+    totalClasses: stats.totalClasses,
+    presentCount: stats.presentCount,
+    absentCount: absentCount,
+    excusedCount: 0
   };
 });
 
 // Use backend upcoming classes data
 const upcomingClasses = computed(() => {
-  return props.upcoming_classes || [];
+  return props.upcomingClasses || [];
 });
 
 // Recent attendance from backend
-const recentAttendance = computed(() => props.recent_attendance ?? []);
+const recentAttendance = computed(() => props.recentAttendance ?? []);
 
 // Student's enrolled classes for selection
 const enrolledClasses = computed(() => {
@@ -141,18 +145,53 @@ const onQRScan = async (qrData: string) => {
   isProcessing.value = true;
   
   try {
-    // Get CSRF token from meta tag
+    // Parse QR data - expect name,course format
+    const parts = qrData.trim().split(',').map(part => part.trim());
+    
+    // Verify QR contains name and course
+    if (parts.length < 2) {
+      throw new Error('Invalid QR code format. Expected: "Name,Course"');
+    }
+    
+    const scannedName = parts[0];
+    const scannedCourse = parts[1];
+    
+    // Verify this matches current student's info
+    if (!props.student) {
+      throw new Error('Student information not available');
+    }
+    
+    // Basic name matching (normalize spaces and case)
+    const normalizedStudentName = props.student.name.toLowerCase().replace(/\s+/g, ' ').trim();
+    const normalizedScannedName = scannedName.toLowerCase().replace(/\s+/g, ' ').trim();
+    
+    // Check if names match (allow partial matching for longer names)
+    const nameMatches = normalizedStudentName.includes(normalizedScannedName) || 
+                       normalizedScannedName.includes(normalizedStudentName);
+    
+    if (!nameMatches) {
+      throw new Error(`QR code name "${scannedName}" does not match your profile name "${props.student.name}"`);
+    }
+    
+    // Basic course matching
+    const normalizedStudentCourse = (props.student.course || '').toLowerCase().replace(/\s+/g, '');
+    const normalizedScannedCourse = scannedCourse.toLowerCase().replace(/\s+/g, '');
+    
+    if (normalizedStudentCourse && !normalizedStudentCourse.includes(normalizedScannedCourse.replace('bs', '')) && 
+        !normalizedScannedCourse.includes(normalizedStudentCourse.replace('bachelor', '').replace('science', ''))) {
+      throw new Error(`QR code course "${scannedCourse}" does not match your profile course "${props.student.course}"`);
+    }
+
+    // Get CSRF token
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-    
-    console.log('CSRF Token:', csrfToken ? 'Found' : 'Not found');
-    console.log('QR Data:', qrData);
-    console.log('Class ID:', selectedClass.value);
-    
     if (!csrfToken) {
       throw new Error('CSRF token not found. Please refresh the page.');
     }
 
-    const response = await fetch('/student/quick-checkin', {
+    console.log('QR Data verified - Name:', scannedName, 'Course:', scannedCourse);
+    console.log('Marking attendance for class:', selectedClass.value);
+
+    const response = await fetch('/student/self-checkin', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -162,13 +201,11 @@ const onQRScan = async (qrData: string) => {
       },
       credentials: 'same-origin',
       body: JSON.stringify({
-        method: 'qr',
-        qr_code: qrData,
-        class_id: selectedClass.value
+        class_id: selectedClass.value,
+        name: scannedName,
+        course: scannedCourse
       })
     });
-
-    console.log('Response status:', response.status);
 
     // Check if response is ok
     if (!response.ok) {
@@ -181,7 +218,7 @@ const onQRScan = async (qrData: string) => {
     console.log('Success response:', data);
     
     if (data.success) {
-      alert(`Success! ${data.message}`);
+      alert(`Success! You have been marked as present.`);
       showQRDialog.value = false;
       selectedClass.value = '';
       // Refresh page to show updated attendance
@@ -191,7 +228,7 @@ const onQRScan = async (qrData: string) => {
     }
   } catch (error: any) {
     console.error('Check-in error:', error);
-    alert(error.message || 'Failed to process check-in. Please try again.');
+    qrError.value = error.message || 'Failed to process check-in. Please try again.';
   } finally {
     isProcessing.value = false;
   }
@@ -334,16 +371,34 @@ const getStatusIcon = (status: string) => {
       </div>
 
       <div class="grid gap-4 md:grid-cols-2">
+        <!-- Student QR Code Info -->
+        <Card class="border-blue-200 bg-blue-50 dark:bg-blue-950/20">
+          <CardHeader>
+            <CardTitle class="text-blue-900 dark:text-blue-100">Your QR Code Format</CardTitle>
+            <CardDescription class="text-blue-700 dark:text-blue-300">
+              Generate a QR code with this exact text to use for self check-in
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div class="bg-white dark:bg-gray-800 rounded-md p-3 font-mono text-sm border">
+              {{ (student?.name || 'Your Name') }},{{ (student?.course || 'Your Course') }}
+            </div>
+            <p class="text-xs text-blue-600 dark:text-blue-400 mt-2">
+              Example: "Juan Dela Cruz,BSCS" or "Maria Santos,BSIT"
+            </p>
+          </CardContent>
+        </Card>
+
         <!-- Check-In Section -->
         <Card>
           <CardHeader>
-            <CardTitle>Quick Check-In</CardTitle>
-            <CardDescription>Scan QR code or enter class ID to mark your attendance</CardDescription>
+            <CardTitle>Self Check-In</CardTitle>
+            <CardDescription>Use your personal QR code (name,course format) to mark attendance</CardDescription>
           </CardHeader>
           <CardContent class="space-y-4">
             <Button @click="openQRScanner" class="w-full" size="lg">
               <QrCode class="mr-2 h-5 w-5" />
-              Scan QR Code
+              Scan Your QR Code
             </Button>
             <div class="text-center text-sm text-muted-foreground">
               or
@@ -416,9 +471,9 @@ const getStatusIcon = (status: string) => {
     <Dialog v-model:open="showQRDialog">
       <DialogContent class="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Scan QR Code for Attendance</DialogTitle>
+          <DialogTitle>Self Check-in with Your QR Code</DialogTitle>
           <DialogDescription>
-            First select your class, then scan the QR code displayed by your teacher
+            Select your class, then scan your personal QR code containing your name and course (e.g., "Juan Dela Cruz,BSCS")
           </DialogDescription>
         </DialogHeader>
         <div class="space-y-4">
@@ -437,7 +492,7 @@ const getStatusIcon = (status: string) => {
           </div>
           
           <div v-if="selectedClass" class="border rounded-lg overflow-hidden bg-muted/50">
-            <p class="text-sm text-center p-2">Point your camera at the QR code</p>
+            <p class="text-sm text-center p-2">Scan your personal QR code with your name and course</p>
             <div class="relative aspect-square bg-black">
               <QrcodeStream 
                 v-if="camera === 'auto'"

@@ -21,7 +21,33 @@ class StudentController extends Controller
     private function getCurrentStudent()
     {
         $user = Auth::user();
-        return Student::where('user_id', $user->id)->firstOrFail();
+        
+        // First try to find by user_id
+        $student = Student::where('user_id', $user->id)->first();
+        
+        if (!$student) {
+            // Check if there's an existing student with this email but no user_id
+            $existingStudent = Student::where('email', $user->email)->whereNull('user_id')->first();
+            
+            if ($existingStudent) {
+                // Link the existing student to this user
+                $existingStudent->update(['user_id' => $user->id]);
+                $student = $existingStudent;
+            } else {
+                // Create a new student record
+                $student = Student::create([
+                    'user_id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'student_id' => 'TEMP-' . $user->id,
+                    'course' => 'Not Set',
+                    'year' => '1st Year',
+                    'section' => 'A'
+                ]);
+            }
+        }
+        
+        return $student;
     }
 
     /**
@@ -115,6 +141,15 @@ class StudentController extends Controller
             ->get();
 
         return Inertia::render('student/Dashboard', [
+            'student' => [
+                'id' => $student->id,
+                'name' => $student->name,
+                'student_id' => $student->student_id,
+                'email' => $student->email,
+                'course' => $student->course,
+                'year' => $student->year,
+                'section' => $student->section,
+            ],
             'stats' => [
                 'totalClasses' => $totalClasses,
                 'attendanceRate' => $attendanceRate,
@@ -371,6 +406,107 @@ class StudentController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Successfully checked in!',
+        ]);
+    }
+
+    /**
+     * Self check-in using student's name and course QR code
+     */
+    public function selfCheckIn(Request $request)
+    {
+        $student = $this->getCurrentStudent();
+
+        $validated = $request->validate([
+            'class_id' => 'required|exists:class_models,id',
+            'name' => 'required|string',
+            'course' => 'required|string',
+        ]);
+
+        // Verify student is enrolled in the class
+        $isEnrolled = DB::table('class_student')
+            ->where('student_id', $student->id)
+            ->where('class_model_id', $validated['class_id'])
+            ->where('status', 'enrolled')
+            ->exists();
+
+        if (!$isEnrolled) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You are not enrolled in this class.',
+            ], 403);
+        }
+
+        // Find an active session for this class
+        $session = AttendanceSession::where('class_id', $validated['class_id'])
+            ->where('status', 'active')
+            ->first();
+
+        if (!$session) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No active attendance session found for this class.',
+            ], 404);
+        }
+
+        // Verify the name and course match the current student
+        $normalizedStudentName = strtolower(trim(preg_replace('/\s+/', ' ', $student->name)));
+        $normalizedScannedName = strtolower(trim(preg_replace('/\s+/', ' ', $validated['name'])));
+        
+        // Allow partial name matching
+        $nameMatches = strpos($normalizedStudentName, $normalizedScannedName) !== false || 
+                      strpos($normalizedScannedName, $normalizedStudentName) !== false;
+
+        if (!$nameMatches) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The scanned name does not match your profile.',
+            ], 400);
+        }
+
+        // Basic course verification (if student has course info)
+        if ($student->course) {
+            $normalizedStudentCourse = strtolower(str_replace(' ', '', $student->course));
+            $normalizedScannedCourse = strtolower(str_replace(' ', '', $validated['course']));
+            
+            $courseMatches = strpos($normalizedStudentCourse, str_replace('bs', '', $normalizedScannedCourse)) !== false ||
+                           strpos($normalizedScannedCourse, str_replace(['bachelor', 'science'], '', $normalizedStudentCourse)) !== false;
+            
+            if (!$courseMatches) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'The scanned course does not match your profile.',
+                ], 400);
+            }
+        }
+
+        // Check if already checked in
+        $existingRecord = AttendanceRecord::where('attendance_session_id', $session->id)
+            ->where('student_id', $student->id)
+            ->first();
+
+        if ($existingRecord) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You have already checked in for this session.',
+            ], 400);
+        }
+
+        // Create attendance record
+        AttendanceRecord::create([
+            'attendance_session_id' => $session->id,
+            'student_id' => $student->id,
+            'status' => 'present',
+            'marked_at' => now(),
+            'marked_by' => 'student',
+            'notes' => 'Self Check-in via Name+Course QR',
+        ]);
+
+        // Update session counts
+        $session->updateCounts();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Successfully marked as present!',
         ]);
     }
 }
