@@ -10,6 +10,7 @@ use App\Models\ExcuseRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -414,7 +415,15 @@ class StudentController extends Controller
      */
     public function selfCheckIn(Request $request)
     {
+        Log::info('Student self-checkin request received', [
+            'request_data' => $request->all(),
+            'headers' => $request->headers->all(),
+            'method' => $request->method(),
+            'url' => $request->url()
+        ]);
+
         $student = $this->getCurrentStudent();
+        Log::info('Current student for self-checkin', ['student_id' => $student->id, 'student_name' => $student->name]);
 
         $validated = $request->validate([
             'class_id' => 'required|exists:class_models,id',

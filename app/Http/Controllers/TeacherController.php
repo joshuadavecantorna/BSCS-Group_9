@@ -669,14 +669,39 @@ class TeacherController extends Controller
      */
     public function markAttendanceByQR(Request $request, $sessionId)
     {
-        $request->validate([
-            'qr_data' => 'required|string',
-        ]);
+        try {
+            Log::info('QR scan request received', [
+                'session_id' => $sessionId,
+                'qr_data' => $request->qr_data,
+                'headers' => $request->headers->all()
+            ]);
 
-        $teacher = $this->getCurrentTeacher();
-        $session = AttendanceSession::where('teacher_id', $teacher->id)
-                                   ->where('status', 'active')
-                                   ->findOrFail($sessionId);
+            $request->validate([
+                'qr_data' => 'required|string',
+            ]);
+
+            $teacher = $this->getCurrentTeacher();
+            if (!$teacher) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Teacher not found'
+                ], 403);
+            }
+
+            $session = AttendanceSession::where('teacher_id', $teacher->id)
+                                       ->where('status', 'active')
+                                       ->findOrFail($sessionId);
+        } catch (\Exception $e) {
+            Log::error('QR scan error', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Server error: ' . $e->getMessage()
+            ], 500);
+        }
 
         // Parse QR data to get student information
         try {

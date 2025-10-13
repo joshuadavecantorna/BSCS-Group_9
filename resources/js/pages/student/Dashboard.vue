@@ -59,6 +59,8 @@ const isProcessing = ref(false);
 // Use backend data with fallbacks
 const attendanceStats = computed(() => {
   const stats = props.stats;
+  console.log('Computing attendance stats with:', stats);
+  
   if (!stats) {
     return {
       presentPercentage: 0,
@@ -71,17 +73,33 @@ const attendanceStats = computed(() => {
     };
   }
   
-  const total = stats.totalAttendance || 1; // Avoid division by zero
-  const absentCount = stats.totalAttendance - stats.presentCount;
-  return {
-    presentPercentage: stats.attendanceRate,
-    absentPercentage: Math.round((absentCount / total) * 100),
+  const total = stats.totalAttendance || 0;
+  const absentCount = Math.max(0, total - (stats.presentCount || 0));
+  
+  // Handle potential NaN values
+  let presentPercentage = stats.attendanceRate || 0;
+  let absentPercentage = 0;
+  
+  if (total > 0) {
+    absentPercentage = Math.round((absentCount / total) * 100);
+  }
+  
+  // Ensure no NaN values
+  presentPercentage = isNaN(presentPercentage) ? 0 : presentPercentage;
+  absentPercentage = isNaN(absentPercentage) ? 0 : absentPercentage;
+  
+  const result = {
+    presentPercentage: presentPercentage,
+    absentPercentage: absentPercentage,
     excusedPercentage: 0, // We don't have excused count in current stats
-    totalClasses: stats.totalClasses,
-    presentCount: stats.presentCount,
+    totalClasses: stats.totalClasses || 0,
+    presentCount: stats.presentCount || 0,
     absentCount: absentCount,
     excusedCount: 0
   };
+  
+  console.log('Computed attendance stats:', result);
+  return result;
 });
 
 // Use backend upcoming classes data
@@ -190,6 +208,7 @@ const onQRScan = async (qrData: string) => {
 
     console.log('QR Data verified - Name:', scannedName, 'Course:', scannedCourse);
     console.log('Marking attendance for class:', selectedClass.value);
+    console.log('CSRF Token:', csrfToken);
 
     const response = await fetch('/student/self-checkin', {
       method: 'POST',
@@ -206,6 +225,9 @@ const onQRScan = async (qrData: string) => {
         course: scannedCourse
       })
     });
+
+    console.log('Response status:', response.status);
+    console.log('Response headers:', Object.fromEntries(response.headers.entries()));
 
     // Check if response is ok
     if (!response.ok) {
