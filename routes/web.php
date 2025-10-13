@@ -103,6 +103,14 @@ Route::middleware(['auth', 'verified'])->prefix('admin')->name('admin.')->group(
     Route::put('/teachers/{id}', [App\Http\Controllers\AdminController::class, 'updateTeacher'])->name('teachers.update');
     Route::patch('/teachers/{id}/toggle-status', [App\Http\Controllers\AdminController::class, 'toggleTeacherStatus'])->name('teachers.toggle-status');
     Route::delete('/teachers/{id}', [App\Http\Controllers\AdminController::class, 'deleteTeacher'])->name('teachers.delete');
+    
+    // Student Management
+    Route::get('/students', [App\Http\Controllers\AdminController::class, 'students'])->name('students');
+    Route::post('/students', [App\Http\Controllers\AdminController::class, 'storeStudent'])->name('students.store');
+    Route::put('/students/{id}', [App\Http\Controllers\AdminController::class, 'updateStudent'])->name('students.update');
+    Route::patch('/students/{id}/toggle-status', [App\Http\Controllers\AdminController::class, 'toggleStudentStatus'])->name('students.toggle-status');
+    Route::delete('/students/{id}', [App\Http\Controllers\AdminController::class, 'deleteStudent'])->name('students.delete');
+    
     Route::get('/settings', [App\Http\Controllers\AdminController::class, 'settings'])->name('settings');
     Route::put('/settings', [App\Http\Controllers\AdminController::class, 'updateSettings'])->name('settings.update');
     Route::get('/reports', [App\Http\Controllers\AdminController::class, 'reports'])->name('reports');

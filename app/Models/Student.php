@@ -14,6 +14,7 @@ class Student extends Model
         'student_id',
         'name',
         'email',
+        'phone',
         'year',
         'course',
         'section',
@@ -24,7 +25,9 @@ class Student extends Model
 
     protected $casts = [
         'qr_data' => 'array',
-        'is_active' => 'boolean'
+        'is_active' => 'boolean',
+        'created_at' => 'datetime',
+        'updated_at' => 'datetime',
     ];
 
     public function user()

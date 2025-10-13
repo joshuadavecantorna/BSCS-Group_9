@@ -85,6 +85,11 @@ const mainNavItems = computed((): NavItem[] => {
         icon: GraduationCap,
       },
       {
+        title: 'Students',
+        href: '/admin/students',
+        icon: Users,
+      },
+      {
         title: 'Reports',
         href: '/admin/reports',
         icon: BarChart3,

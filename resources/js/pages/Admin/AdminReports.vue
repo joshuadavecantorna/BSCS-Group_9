@@ -65,6 +65,56 @@
         </Card>
       </div>
 
+      <!-- Student Statistics -->
+      <div class="grid gap-4 md:grid-cols-4">
+        <Card>
+          <CardContent class="p-4">
+            <div class="flex items-center justify-between mb-2">
+              <Users class="h-5 w-5 text-purple-500" />
+              <div class="w-2 h-2 bg-purple-500 rounded-full"></div>
+            </div>
+            <span class="text-sm font-medium">Total Students</span>
+            <div class="text-2xl font-bold mt-1">{{ props.studentStats?.total_students || 0 }}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent class="p-4">
+            <div class="flex items-center justify-between mb-2">
+              <UserCheck class="h-5 w-5 text-emerald-500" />
+              <div class="w-2 h-2 bg-emerald-500 rounded-full"></div>
+            </div>
+            <span class="text-sm font-medium">Active Students</span>
+            <div class="text-2xl font-bold mt-1 text-emerald-600">{{ props.studentStats?.active_students || 0 }}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent class="p-4">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-sm font-medium">Students by Course</span>
+            </div>
+            <div class="space-y-1">
+              <div v-for="course in (props.studentStats?.students_by_course || []).slice(0, 3)" :key="course.course" class="flex justify-between text-sm">
+                <span>{{ course.course }}</span>
+                <span class="font-medium">{{ course.count }}</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent class="p-4">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-sm font-medium">Students by Year</span>
+            </div>
+            <div class="space-y-1">
+              <div v-for="year in (props.studentStats?.students_by_year || []).slice(0, 3)" :key="year.year" class="flex justify-between text-sm">
+                <span>{{ year.year }}</span>
+                <span class="font-medium">{{ year.count }}</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
       <!-- Filters -->
       <Card>
         <CardHeader>
@@ -75,7 +125,7 @@
           <CardDescription>Filter attendance records by class, date range, and status</CardDescription>
         </CardHeader>
         <CardContent>
-          <div class="grid gap-4 md:grid-cols-3 lg:grid-cols-7">
+          <div class="grid gap-4 md:grid-cols-3 lg:grid-cols-5">
             <div class="space-y-2">
               <Label>Department</Label>
               <Select v-model="filters.department">
@@ -109,8 +159,62 @@
                   <SelectValue placeholder="All Classes" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem v-for="cls in classes" :key="cls.id" :value="cls.id.toString()">
+                  <SelectItem v-for="cls in (props.classes || [])" :key="cls.id" :value="cls.id.toString()">
                     {{ cls.name }} ({{ cls.course }})
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div class="space-y-2">
+              <Label>Student</Label>
+              <Select v-model="filters.student_id">
+                <SelectTrigger>
+                  <SelectValue placeholder="All Students" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem v-for="student in (props.students || [])" :key="student.id" :value="student.id.toString()">
+                    {{ student.name }} ({{ student.student_id }})
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div class="space-y-2">
+              <Label>Course</Label>
+              <Select v-model="filters.course">
+                <SelectTrigger>
+                  <SelectValue placeholder="All Courses" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem v-for="course in (props.courses || [])" :key="course" :value="course">
+                    {{ course }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div class="grid gap-4 md:grid-cols-3 lg:grid-cols-6 mt-4">
+            <div class="space-y-2">
+              <Label>Section</Label>
+              <Select v-model="filters.section">
+                <SelectTrigger>
+                  <SelectValue placeholder="All Sections" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem v-for="section in (props.sections || [])" :key="section" :value="section">
+                    {{ section }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div class="space-y-2">
+              <Label>Year</Label>
+              <Select v-model="filters.year">
+                <SelectTrigger>
+                  <SelectValue placeholder="All Years" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem v-for="year in (props.years || [])" :key="year" :value="year">
+                    {{ year }}
                   </SelectItem>
                 </SelectContent>
               </Select>
@@ -192,13 +296,13 @@
                 <tr class="border-b">
                   <th 
                     v-for="column in [
-                      { key: 'student_name', label: 'Student Name' },
-                      { key: 'student_id', label: 'Student ID' },
+                      { key: 'student_name', label: 'Student' },
+                      { key: 'student_course', label: 'Course' },
                       { key: 'class_name', label: 'Class' },
+                      { key: 'teacher_name', label: 'Teacher' },
                       { key: 'date', label: 'Date' },
                       { key: 'status', label: 'Status' },
-                      { key: 'time_in', label: 'Time In' },
-                      { key: 'time_out', label: 'Time Out' }
+                      { key: 'time_in', label: 'Time In' }
                     ]"
                     :key="column.key"
                     @click="handleSort(column.key as keyof AttendanceRecord)"
@@ -217,9 +321,20 @@
               </thead>
               <tbody>
                 <tr v-for="record in filteredData" :key="record.id" class="border-b hover:bg-gray-50">
-                  <td class="px-4 py-3 font-medium">{{ record.student_name }}</td>
-                  <td class="px-4 py-3 text-muted-foreground">{{ record.student_id }}</td>
+                  <td class="px-4 py-3">
+                    <div>
+                      <div class="font-medium">{{ record.student_name }}</div>
+                      <div class="text-sm text-muted-foreground">{{ record.student_id }}</div>
+                    </div>
+                  </td>
+                  <td class="px-4 py-3">
+                    <div>
+                      <div class="font-medium">{{ record.student_course }}</div>
+                      <div class="text-sm text-muted-foreground">{{ record.student_section }} - {{ record.student_year }}</div>
+                    </div>
+                  </td>
                   <td class="px-4 py-3">{{ record.class_name }}</td>
+                  <td class="px-4 py-3">{{ record.teacher_name }}</td>
                   <td class="px-4 py-3">{{ record.date }}</td>
                   <td class="px-4 py-3">
                     <Badge :class="getStatusColor(record.status)">
@@ -227,7 +342,6 @@
                     </Badge>
                   </td>
                   <td class="px-4 py-3">{{ record.time_in }}</td>
-                  <td class="px-4 py-3">{{ record.time_out }}</td>
                 </tr>
                 <tr v-if="filteredData.length === 0">
                   <td colspan="7" class="px-4 py-8 text-center text-muted-foreground">
@@ -321,19 +435,36 @@ interface Props {
     excused: number;
     late: number;
   };
+  studentStats: {
+    total_students: number;
+    active_students: number;
+    students_by_course: Array<{
+      course: string;
+      count: number;
+    }>;
+    students_by_year: Array<{
+      year: string;
+      count: number;
+    }>;
+  };
   attendanceRecords: {
     data: Array<{
       id: number;
       student_name: string;
       student_number: string;
+      student_course: string;
+      student_section: string;
+      student_year: string;
+      student_email: string;
       class_name: string;
-      course: string;
+      class_course: string;
       teacher_first_name: string;
       teacher_last_name: string;
       department: string;
       session_date: string;
       start_time: string;
       end_time: string;
+      session_name: string;
       status: 'present' | 'absent' | 'excused' | 'late';
       marked_at: string;
     }>;
@@ -352,10 +483,25 @@ interface Props {
     course: string;
     teacher: string;
   }>;
+  students: Array<{
+    id: number;
+    name: string;
+    student_id: string;
+    course: string;
+    section: string;
+    year: string;
+  }>;
+  courses: string[];
+  sections: string[];
+  years: string[];
   filters: {
     department?: string;
     teacher_id?: string;
     class_id?: string;
+    student_id?: string;
+    course?: string;
+    section?: string;
+    year?: string;
     date_from?: string;
     date_to?: string;
     status?: string;
@@ -375,6 +521,10 @@ const filters = ref({
   department: props.filters?.department || '',
   teacher_id: props.filters?.teacher_id || '',
   class_id: props.filters?.class_id || '',
+  student_id: props.filters?.student_id || '',
+  course: props.filters?.course || '',
+  section: props.filters?.section || '',
+  year: props.filters?.year || '',
   date_from: props.filters?.date_from || '',
   date_to: props.filters?.date_to || '',
   status: props.filters?.status || ''
@@ -432,8 +582,11 @@ const filteredData = computed(() => {
     id: record.id,
     student_name: record.student_name, // This field is already combined from the query
     student_id: record.student_number,
+    student_course: record.student_course,
+    student_section: record.student_section,
+    student_year: record.student_year,
     class_name: record.class_name,
-    course: record.course,
+    class_course: record.class_course,
     teacher_name: `${record.teacher_first_name} ${record.teacher_last_name}`,
     department: record.department,
     date: record.session_date,
@@ -467,6 +620,10 @@ const clearFilters = () => {
     department: '',
     teacher_id: '',
     class_id: '',
+    student_id: '',
+    course: '',
+    section: '',
+    year: '',
     date_from: '',
     date_to: '',
     status: ''
@@ -487,7 +644,7 @@ const exportToExcel = () => {
       `"${record.student_name}"`,
       `"${record.student_id}"`,
       `"${record.class_name}"`,
-      `"${record.course}"`,
+      `"${record.class_course}"`,
       `"${record.teacher_name}"`,
       `"${record.department}"`,
       `"${record.date}"`,
