@@ -202,7 +202,7 @@ class TeacherController extends Controller
                 'section' => trim($request->section),
                 'subject' => $request->subject ? trim($request->subject) : null,
                 'year' => trim($request->year),
-                'description' => $request->description ? trim($request->description) : null,
+'description' => $request->description ? trim($request->description) : null,
                 'schedule_time' => $request->schedule_time,
                 'schedule_days' => $request->schedule_days ?? [],
                 'is_active' => DB::raw('true')
@@ -739,9 +739,13 @@ class TeacherController extends Controller
             // Find student in database
             $student = Student::where('student_id', $studentId)->first();
             if (!$student) {
+                Log::error('Student lookup failed', [
+                    'student_id' => $studentId,
+                    'qr_data' => $request->qr_data
+                ]);
                 return response()->json([
                     'success' => false,
-                    'message' => 'Student not found in database'
+                    'message' => 'Database lookup failed for ID: ' . $studentId
                 ], 404);
             }
 

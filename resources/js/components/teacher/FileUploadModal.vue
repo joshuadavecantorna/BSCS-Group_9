@@ -272,54 +272,8 @@ const formatFileSize = (bytes: number) => {
 }
 
 const uploadFile = async () => {
-  if (!canUpload.value) return
-
-  isUploading.value = true
-  uploadProgress.value = 0
-  errorMessage.value = ''
-
-  try {
-    const formData = new FormData()
-    formData.append('class_id', selectedClass.value)
-    formData.append('description', description.value)
-    formData.append('allow_download', allowDownload.value.toString())
-    formData.append('notify_students', notifyStudents.value.toString())
-
-    selectedFiles.value.forEach((file, index) => {
-      formData.append(`files[${index}]`, file)
-    })
-
-    // Simulate upload progress
-    const progressInterval = setInterval(() => {
-      if (uploadProgress.value < 90) {
-        uploadProgress.value += Math.random() * 10
-      }
-    }, 200)
-
-    router.post('/teacher/files/upload', formData, {
-      onSuccess: (response) => {
-        clearInterval(progressInterval)
-        uploadProgress.value = 100
-        
-        setTimeout(() => {
-          resetForm()
-          isUploading.value = false
-          emit('file-uploaded', response)
-        }, 500)
-      },
-      onError: (errors) => {
-        clearInterval(progressInterval)
-        isUploading.value = false
-        uploadProgress.value = 0
-        errorMessage.value = errors.files?.[0] || 'Upload failed. Please try again.'
-      }
-    })
-  } catch (error) {
-    isUploading.value = false
-    uploadProgress.value = 0
-    errorMessage.value = 'Upload failed. Please try again.'
-  }
-}
+  alert('Under Development');
+};
 
 const resetForm = () => {
   selectedClass.value = ''

@@ -10,27 +10,13 @@ Route::get('/', function () {
 Route::get('dashboard', [App\Http\Controllers\AdminController::class, 'dashboard'])
     ->middleware(['auth', 'verified'])->name('dashboard');
 
-Route::get('files', [App\Http\Controllers\FilesController::class, 'index'])
-    ->middleware(['auth', 'verified'])
-    ->name('files');
-
-Route::post('files', [App\Http\Controllers\FilesController::class, 'store']);
-
-Route::get('files/download/{filename}', [App\Http\Controllers\FilesController::class, 'download'])
-    ->name('files.download');
-
-Route::get('files/{filename}', [App\Http\Controllers\FilesController::class, 'download'])
-    ->name('files.view');
-
-Route::delete('files/{filename}', [App\Http\Controllers\FilesController::class, 'destroy'])
-    ->name('files.destroy');
-
-Route::post('files/{filename}/share', [App\Http\Controllers\FilesController::class, 'share'])
-    ->name('files.share');
-
 Route::get('reports', function () {
     return Inertia::render('Reports');
 })->middleware(['auth', 'verified'])->name('reports');
+// Add this route ▼
+Route::get('/teacher/files', function () {
+    return view('teacher/files');
+})->name('teacher.files');
 
 // Teacher Routes
 Route::middleware(['auth', 'verified'])->prefix('teacher')->name('teacher.')->group(function () {
@@ -110,6 +96,12 @@ Route::middleware(['auth', 'verified'])->prefix('admin')->name('admin.')->group(
     Route::put('/students/{id}', [App\Http\Controllers\AdminController::class, 'updateStudent'])->name('students.update');
     Route::patch('/students/{id}/toggle-status', [App\Http\Controllers\AdminController::class, 'toggleStudentStatus'])->name('students.toggle-status');
     Route::delete('/students/{id}', [App\Http\Controllers\AdminController::class, 'deleteStudent'])->name('students.delete');
+    
+    // File Management Routes
+    Route::get('/files', [\App\Http\Controllers\FilesController::class, 'index'])->name('files');
+    Route::post('/files', [\App\Http\Controllers\FilesController::class, 'store'])->name('files.store');
+    Route::get('/files/download/{filename}', [\App\Http\Controllers\FilesController::class, 'download'])->name('files.download');
+    Route::delete('/files/{id}', [\App\Http\Controllers\FilesController::class, 'destroy'])->name('files.destroy');
     
     Route::get('/settings', [App\Http\Controllers\AdminController::class, 'settings'])->name('settings');
     Route::put('/settings', [App\Http\Controllers\AdminController::class, 'updateSettings'])->name('settings.update');

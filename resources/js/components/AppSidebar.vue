@@ -90,6 +90,11 @@ const mainNavItems = computed((): NavItem[] => {
         icon: Users,
       },
       {
+        title: 'Files',
+        href: '/admin/files',
+        icon: Folder,
+      },
+      {
         title: 'Reports',
         href: '/admin/reports',
         icon: BarChart3,

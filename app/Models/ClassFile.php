@@ -10,52 +10,80 @@ class ClassFile extends Model
 {
     use HasFactory;
 
+    /**
+     * The table associated with the model.
+     *
+     * @var string
+     */
+    protected $table = 'class_files';
+
+    /**
+     * The attributes that are mass assignable.
+     *
+     * @var array<int, string>
+     */
     protected $fillable = [
         'class_id',
         'teacher_id',
         'file_name',
+        'original_name',
+        'file_path',
         'file_type',
         'file_size',
-        'file_url',
         'description',
-        'is_public'
+        'visibility',
+        'is_active',
     ];
 
+    /**
+     * The attributes that should be cast.
+     *
+     * @var array<string, string>
+     */
     protected $casts = [
         'file_size' => 'integer',
-        'is_public' => 'boolean',
+        'is_active' => 'boolean',
         'created_at' => 'datetime',
-        'updated_at' => 'datetime'
+        'updated_at' => 'datetime',
     ];
 
-    // Relationships
+    /**
+     * Get the class that this file belongs to.
+     */
     public function class(): BelongsTo
     {
         return $this->belongsTo(ClassModel::class, 'class_id');
     }
 
+    /**
+     * Get the teacher who uploaded the file.
+     */
     public function teacher(): BelongsTo
     {
         return $this->belongsTo(Teacher::class);
     }
 
-    // Accessors
+    /**
+     * Get the formatted file size.
+     */
     public function getFileSizeFormattedAttribute(): string
     {
         $bytes = $this->file_size;
         if ($bytes >= 1073741824) {
-            $bytes = number_format($bytes / 1073741824, 2) . ' GB';
-        } elseif ($bytes >= 1048576) {
-            $bytes = number_format($bytes / 1048576, 2) . ' MB';
-        } elseif ($bytes >= 1024) {
-            $bytes = number_format($bytes / 1024, 2) . ' KB';
-        } elseif ($bytes > 1) {
-            $bytes = $bytes . ' bytes';
-        } elseif ($bytes == 1) {
-            $bytes = $bytes . ' byte';
-        } else {
-            $bytes = '0 bytes';
+            return number_format($bytes / 1073741824, 2) . ' GB';
         }
-        return $bytes;
+        if ($bytes >= 1048576) {
+            return number_format($bytes / 1048576, 2) . ' MB';
+        }
+        if ($bytes >= 1024) {
+            return number_format($bytes / 1024, 2) . ' KB';
+        }
+        if ($bytes > 1) {
+            return $bytes . ' bytes';
+        }
+        if ($bytes == 1) {
+            return $bytes . ' byte';
+        }
+        return '0 bytes';
     }
 }

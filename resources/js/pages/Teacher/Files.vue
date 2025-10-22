@@ -31,6 +31,10 @@ const breadcrumbs = [
   { title: 'Files', href: '/teacher/files' }
 ];
 
+const showUnderDevelopmentAlert = () => {
+  alert('Under Development');
+};
+
 // File upload modal state
 const showUploadModal = ref(false);
 
@@ -152,7 +156,7 @@ const handleFileUploaded = (response: any) => {
             </div>
 
             <div class="text-center py-4">
-              <Button variant="outline" @click="$inertia.visit('/teacher/files/all')">
+              <Button variant="outline" @click="showUnderDevelopmentAlert">
                 View All Files
               </Button>
             </div>

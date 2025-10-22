@@ -38,6 +38,10 @@ interface Props {
 
 const props = defineProps<Props>();
 
+const showUnderDevelopmentAlert = () => {
+  alert('Under Development');
+};
+
 const breadcrumbs = [
   { title: 'Teacher Dashboard', href: '/teacher/dashboard' }
 ];
@@ -219,6 +223,13 @@ const weeklyAttendance = computed(() => {
                 <span class="mr-2">📊</span>
                 View Reports
               </Button>
+
+              <!-- Add this button ▼ -->
+              <Button variant="outline" class="w-full justify-start" size="lg" @click="showUnderDevelopmentAlert">
+                <span class="mr-2">📁</span>
+                View All Files
+              </Button>
+
             </CardContent>
           </Card>
 
