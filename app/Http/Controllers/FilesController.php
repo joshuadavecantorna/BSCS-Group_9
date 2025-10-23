@@ -2,7 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\ClassFile;
+use App\Models\ClassModel;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
@@ -10,298 +13,138 @@ use Inertia\Inertia;
 class FilesController extends Controller
 {
     /**
-     * Display the files page.
+     * Display the files page, fetching paginated files from the database.
      */
-    public function index()
+    public function index(Request $request)
     {
-        // Sample data for demonstration
-        $files = [
-            [
-                'id' => '1',
-                'name' => 'Attendance_Report_BSCS_A_January.pdf',
-                'size' => 245760, // 240KB
-                'type' => 'application/pdf',
-                'uploaded_at' => now()->subDays(2)->toISOString(),
-                'uploaded_by' => 'John Doe',
-                'category' => 'attendance-reports',
-                'class_linked' => 'BSCS-A',
-                'path' => 'files/attendance-reports/1/BSCS/A/Attendance_Report_BSCS_A_January.pdf'
-            ],
-            [
-                'id' => '2',
-                'name' => 'Student_Grades_BSIT_B.xlsx',
-                'size' => 512000, // 500KB
-                'type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                'uploaded_at' => now()->subDays(5)->toISOString(),
-                'uploaded_by' => 'Jane Smith',
-                'category' => 'student-records',
-                'class_linked' => 'BSIT-B',
-                'path' => 'files/student-records/1/BSIT/B/Student_Grades_BSIT_B.xlsx'
-            ],
-            [
-                'id' => '3',
-                'name' => 'Class_Schedule_Spring_2024.csv',
-                'size' => 15360, // 15KB
-                'type' => 'text/csv',
-                'uploaded_at' => now()->subWeek()->toISOString(),
-                'uploaded_by' => 'Admin User',
-                'category' => 'class-schedules',
-                'class_linked' => 'General',
-                'path' => 'files/class-schedules/General/Class_Schedule_Spring_2024.csv'
-            ],
-            [
-                'id' => '4',
-                'name' => 'Parent_Meeting_Notes_BSCE_A.pdf',
-                'size' => 180000, // 176KB
-                'type' => 'application/pdf',
-                'uploaded_at' => now()->subDays(3)->toISOString(),
-                'uploaded_by' => 'Sarah Johnson',
-                'category' => 'parent-communications',
-                'class_linked' => 'BSCE-A',
-                'path' => 'files/parent-communications/2/BSCE/A/Parent_Meeting_Notes_BSCE_A.pdf'
-            ]
-        ];
+        $files = ClassFile::query()
+            ->with('teacher.user') // Eager load for performance
+            ->when($request->input('search'), function ($query, $search) {
+                $query->where('original_name', 'like', "%{$search}%");
+            })
+            ->orderBy('created_at', 'desc')
+            ->paginate(15)
+            ->withQueryString();
 
-        return Inertia::render('Files', [
-            'files' => $files
+        return Inertia::render('Admin/Files', [ // Adjusted view path
+            'files' => $files,
         ]);
     }
 
     /**
-     * Store a newly uploaded file.
+     * Store a newly uploaded file and its metadata in the database.
      */
     public function store(Request $request)
     {
         $request->validate([
-            'file' => 'required|file|mimes:pdf,csv,xlsx,xls,doc,docx|max:10240', // 10MB max, only specified file types
+            'file' => 'required|file|mimes:pdf,csv,xlsx,xls,doc,docx,jpg,jpeg,png,gif,mp4,mov,avi|max:20480', // 20MB max
             'category' => 'required|string|in:attendance-reports,student-records,class-schedules,parent-communications,administrative,templates',
-            'class_linked' => 'nullable|string' // Optional class association
+            'class_linked' => 'nullable|string',
+            'description' => 'nullable|string|max:1000',
         ]);
 
         $file = $request->file('file');
         $category = $request->input('category');
         $classLinked = $request->input('class_linked', 'General');
-        
-        // Auto-organization: Create folder structure like "1/BSCS/A" or similar
         $organizationPath = $this->createOrganizationPath($classLinked);
-        
-        // Generate unique filename
-        $originalName = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME);
-        $extension = $file->getClientOriginalExtension();
-        $filename = time() . '_' . Str::slug($originalName) . '.' . $extension;
-        
-        // Store file in organized directory structure
-        $fullPath = 'files/' . $category . '/' . $organizationPath;
-        $path = $file->storeAs($fullPath, $filename, 'public');
+        $originalName = $file->getClientOriginalName();
+        $filename = time() . '_' . Str::slug(pathinfo($originalName, PATHINFO_FILENAME)) . '.' . $file->getClientOriginalExtension();
+        $path = $file->storeAs('files/' . $category . '/' . $organizationPath, $filename, 'public');
+        $classModel = ClassModel::where('name', $classLinked)->first();
 
-        // In a real app, you'd save file metadata to database with class linking
-        
+        ClassFile::create([
+            'class_id' => $classModel ? $classModel->id : null,
+            'teacher_id' => Auth::id(), // Assumes the logged-in user is a teacher
+            'file_name' => $filename,
+            'original_name' => $originalName,
+            'file_path' => $path,
+            'file_type' => $file->getMimeType(),
+            'file_size' => $file->getSize(),
+            'description' => $request->input('description'),
+            'visibility' => 'public',
+        ]);
+
         return redirect()->back()->with('success', 'File uploaded successfully!');
     }
 
     /**
-     * Download a file.
+     * Provide real-time metrics for the files subsystem.
+     */
+    public function metrics()
+    {
+        $totalFiles = ClassFile::count();
+        $totalStorage = ClassFile::sum('file_size');
+        $fileTypeBreakdown = ClassFile::query()
+            ->selectRaw('file_type, count(*) as count')
+            ->groupBy('file_type')
+            ->get();
+        $recentUploads = ClassFile::query()
+            ->orderBy('created_at', 'desc')
+            ->limit(5)
+            ->get();
+
+        return response()->json([
+            'total_files' => $totalFiles,
+            'total_storage_used' => $totalStorage,
+            'total_storage_formatted' => $this->formatBytes($totalStorage),
+            'file_type_breakdown' => $fileTypeBreakdown,
+            'recent_uploads' => $recentUploads,
+        ]);
+    }
+
+    /**
+     * Download a file from storage.
      */
     public function download($filename)
     {
-        // Find file in storage
-        $filePath = $this->findFileInStorage($filename);
-        
-        if (!$filePath || !Storage::disk('public')->exists($filePath)) {
-            abort(404, 'File not found');
+        $fileRecord = ClassFile::where('file_name', $filename)->firstOrFail();
+        if (!Storage::disk('public')->exists($fileRecord->file_path)) {
+            abort(404, 'File not found in storage.');
         }
-        
-        return response()->download(storage_path('app/public/' . $filePath));
+        return response()->download(storage_path('app/public/' . $fileRecord->file_path), $fileRecord->original_name);
     }
 
     /**
-     * Delete a file.
+     * Delete a file from storage and the database.
      */
-    public function destroy($filename)
+    public function destroy($id)
     {
-        // Find and delete file
-        $filePath = $this->findFileInStorage($filename);
-        
-        if (!$filePath) {
-            abort(404, 'File not found');
-        }
-        
-        Storage::disk('public')->delete($filePath);
+        $fileRecord = ClassFile::findOrFail($id);
+        Storage::disk('public')->delete($fileRecord->file_path);
+        $fileRecord->delete();
 
-        return Inertia::render('Files', [
-            'files' => $this->getFilesFromStorage()
-        ]);
+        return redirect()->back()->with('success', 'File deleted successfully.');
     }
 
-    /**
-     * Share a file with specified emails.
-     */
-    public function share(Request $request, $filename)
-    {
-        $request->validate([
-            'emails' => 'required|string'
-        ]);
-
-        // Find file
-        $filePath = $this->findFileInStorage($filename);
-        
-        if (!$filePath) {
-            abort(404, 'File not found');
-        }
-
-        $emails = array_map('trim', explode(',', $request->input('emails')));
-        
-        // In a real app, you would:
-        // 1. Validate email addresses
-        // 2. Send sharing invitations via email
-        // 3. Store sharing permissions in database
-        // 4. Generate secure sharing links
-        
-        return response()->json([
-            'success' => true,
-            'message' => 'File shared successfully',
-            'shared_with' => $emails
-        ]);
-    }
-
-    /**
-     * Get files from storage (helper method).
-     */
-    private function getFilesFromStorage()
-    {
-        $files = [];
-        $directories = ['attendance-reports', 'student-records', 'class-schedules', 'parent-communications', 'administrative', 'templates'];
-        
-        foreach ($directories as $category) {
-            $categoryFiles = Storage::disk('public')->files('files/' . $category);
-            
-            foreach ($categoryFiles as $filePath) {
-                $files[] = [
-                    'id' => md5($filePath),
-                    'name' => basename($filePath),
-                    'size' => Storage::disk('public')->size($filePath),
-                    'type' => $this->getMimeTypeFromPath($filePath),
-                    'uploaded_at' => date('Y-m-d\TH:i:s\Z', Storage::disk('public')->lastModified($filePath)),
-                    'uploaded_by' => 'Teacher', // In real app, get from user session
-                    'category' => $category,
-                    'path' => $filePath,
-                    'class_linked' => $this->extractClassFromPath($filePath)
-                ];
-            }
-        }
-        
-        // Sort by upload date (newest first)
-        usort($files, function($a, $b) {
-            return strtotime($b['uploaded_at']) - strtotime($a['uploaded_at']);
-        });
-        
-        return $files;
-    }
-
-    /**
-     * Find file in storage by filename (helper method).
-     */
-    private function findFileInStorage($filename)
-    {
-        $directories = ['attendance-reports', 'student-records', 'class-schedules', 'parent-communications', 'administrative', 'templates'];
-        
-        foreach ($directories as $category) {
-            $files = Storage::disk('public')->files('files/' . $category);
-            
-            foreach ($files as $filePath) {
-                if (basename($filePath) === $filename) {
-                    return $filePath;
-                }
-            }
-        }
-        
-        return null;
-    }
-
-    /**
-     * Create organization path based on class name (e.g., "1/BSCS/A").
-     */
+    // ... (keep all private helper methods from the original file)
     private function createOrganizationPath($classLinked)
     {
-        // Extract components from class name (e.g., "BSCS-A" -> "1/BSCS/A")
         if ($classLinked === 'General' || empty($classLinked)) {
             return 'General';
         }
-
-        // Parse class name patterns like "BSCS-A", "BSIT-B", etc.
         if (preg_match('/^(BS[A-Z]+)-([A-Z])$/', $classLinked, $matches)) {
-            $program = $matches[1]; // e.g., "BSCS"
-            $section = $matches[2]; // e.g., "A"
-            
-            // Determine year based on program (simplified logic)
+            $program = $matches[1];
+            $section = $matches[2];
             $year = $this->determineYearFromProgram($program);
-            
             return "{$year}/{$program}/{$section}";
         }
-
-        // Fallback to just the class name
         return str_replace('-', '/', $classLinked);
     }
 
-    /**
-     * Extract class information from file path.
-     */
-    private function extractClassFromPath($filePath)
-    {
-        $pathParts = explode('/', $filePath);
-        
-        // Look for class organization pattern in path
-        if (count($pathParts) >= 4) {
-            // Extract from pattern like "files/category/1/BSCS/A/filename.pdf"
-            $year = $pathParts[2] ?? '';
-            $program = $pathParts[3] ?? '';
-            $section = $pathParts[4] ?? '';
-            
-            if ($year && $program && $section && $year !== 'General') {
-                return "{$program}-{$section}";
-            }
-        }
-        
-        return 'General';
-    }
-
-    /**
-     * Determine academic year from program name.
-     */
     private function determineYearFromProgram($program)
     {
-        // This is simplified logic - in a real app, you'd have proper academic year management
         $yearMapping = [
-            'BSCS' => '1', // 1st year
-            'BSIT' => '1', // 1st year
-            'BSCE' => '2', // 2nd year (example)
-            'BSME' => '2', // 2nd year (example)
+            'BSCS' => '1', 'BSIT' => '1', 'BSCE' => '2', 'BSME' => '2',
         ];
-
         return $yearMapping[$program] ?? '1';
     }
-
-    /**
-     * Get MIME type from file path based on extension.
-     */
-    private function getMimeTypeFromPath($filePath)
-    {
-        $extension = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
-        
-        $mimeTypes = [
-            'pdf' => 'application/pdf',
-            'csv' => 'text/csv',
-            'xls' => 'application/vnd.ms-excel',
-            'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            'doc' => 'application/msword',
-            'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            'txt' => 'text/plain',
-            'jpg' => 'image/jpeg',
-            'jpeg' => 'image/jpeg',
-            'png' => 'image/png',
-            'gif' => 'image/gif',
-        ];
-
-        return $mimeTypes[$extension] ?? 'application/octet-stream';
+    
+    private function formatBytes($bytes, $precision = 2) {
+        $units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        $bytes = max($bytes, 0);
+        $pow = floor(($bytes ? log($bytes) : 0) / log(1024));
+        $pow = min($pow, count($units) - 1);
+        $bytes /= (1 << (10 * $pow));
+        return round($bytes, $precision) . ' ' . $units[$pow];
     }
 }

@@ -39,6 +39,12 @@ export interface User {
     email_verified_at: string | null;
     created_at: string;
     updated_at: string;
+    isTeacher?: boolean;
+    // Added fields for role-aware navigation
+    role?: 'admin' | 'teacher' | 'student' | string;
+    isStudent?: boolean;
+    teacher?: any;
+    student?: any;
 }
 
 export type BreadcrumbItemType = BreadcrumbItem;

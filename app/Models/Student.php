@@ -10,10 +10,12 @@ class Student extends Model
     use HasFactory;
 
     protected $fillable = [
+        'user_id',
         'student_id',
         'name',
         'email',
         'class_id',
+        'phone',
         'year',
         'course',
         'section',
@@ -24,15 +26,22 @@ class Student extends Model
 
     protected $casts = [
         'qr_data' => 'array',
-        'is_active' => 'boolean'
+        'is_active' => 'boolean',
+        'created_at' => 'datetime',
+        'updated_at' => 'datetime',
     ];
+
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
 
     public function attendance()
     {
         return $this->hasMany(Attendance::class);
     }
 
-    public function user()
+    public function userByEmail()
     {
         return $this->belongsTo(User::class, 'email', 'email');
     }

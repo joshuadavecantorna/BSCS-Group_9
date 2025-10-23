@@ -11,7 +11,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Camera, RotateCw, X, CheckCircle, AlertCircle, QrCode, Upload, Zap, SwitchCamera, Flashlight, User, BookOpen, Calendar, Hash, GraduationCap } from 'lucide-vue-next';
+import { Camera, RotateCw, X, CheckCircle, AlertCircle, QrCode, Upload, Zap, SwitchCamera, Flashlight, User, BookOpen, Calendar, Hash, GraduationCap, FileUp } from 'lucide-vue-next';
+import { router } from '@inertiajs/vue3';
 
 // Types
 interface Student {
@@ -23,17 +24,19 @@ interface Student {
   section: string;
   avatar?: string | null;
   timestamp?: string;
+  needsLookup?: boolean; // Flag to indicate database lookup needed
 }
 
 interface ScanResult {
   student: Student;
   rawData: string;
-  format: 'json' | 'csv' | 'url' | 'keyvalue' | 'mock';
+  format: 'json' | 'csv' | 'url' | 'keyvalue' | 'mock' | 'file' | 'name-course';
 }
 
 // Props
 const props = defineProps<{
   show: boolean;
+  sessionId?: number | null;
 }>();
 
 // Emits
@@ -51,16 +54,27 @@ const lastScannedStudent = ref<Student | null>(null);
 const cameraStatus = ref<'loading' | 'ready' | 'error' | 'unsupported'>('loading');
 const debugInfo = ref<string>('');
 const manualQrInput = ref<string>('');
-const activeTab = ref<'camera' | 'manual'>('camera');
+const activeTab = ref<'camera' | 'manual' | 'upload'>('camera');
 const scanHistory = ref<ScanResult[]>([]);
 
-// Manual form fields with validation
-const studentId = ref<string>('');
+// File upload state
+const fileInput = ref<HTMLInputElement | null>(null);
+const uploadedFile = ref<File | null>(null);
+const uploadProgress = ref<number>(0);
+const uploadedStudents = ref<Student[]>([]);
+const uploadSuccess = ref<string>('');
+const uploadError = ref<string>('');
+const isUploading = ref<boolean>(false);
+
+// Manual form fields with validation - simplified for name+course only
 const studentName = ref<string>('');
-const studentYear = ref<string>(''); // 1st, 2nd, 3rd, 4th, 5th
 const studentCourse = ref<string>('');
-const studentSection = ref<string>('');
 const formErrors = ref<Record<string, string>>({});
+
+// Optional fields (for display purposes only)
+const studentId = ref<string>('');
+const studentYear = ref<string>(''); // 1st, 2nd, 3rd, 4th, 5th
+const studentSection = ref<string>('');
 
 // Year level options
 const yearLevels = [
@@ -71,29 +85,18 @@ const yearLevels = [
   { value: '5th', label: '5th Year' }
 ];
 
-// Form validation rules
+// Form validation rules - simplified for name+course
 const validationRules = {
-  student_id: (value: string) => {
-    if (!value.trim()) return 'Student ID is required';
-    if (value.length < 3) return 'Student ID must be at least 3 characters';
-    return '';
-  },
   name: (value: string) => {
     if (!value.trim()) return 'Name is required';
     if (value.length < 2) return 'Name must be at least 2 characters';
     if (!/^[a-zA-Z\s.'-]+$/.test(value)) return 'Name can only contain letters, spaces, and basic punctuation';
     return '';
   },
-  year: (value: string) => {
-    if (value && !/^(1st|2nd|3rd|4th|5th)$/.test(value)) return 'Please select a valid year level';
-    return '';
-  },
   course: (value: string) => {
-    if (value && value.length > 50) return 'Course name is too long';
-    return '';
-  },
-  section: (value: string) => {
-    if (value && !/^[A-Za-z0-9]{1,5}$/.test(value)) return 'Section must be 1-5 alphanumeric characters';
+    if (!value.trim()) return 'Course is required';
+    if (value.length < 2) return 'Course must be at least 2 characters';
+    if (!/^(BS|Bachelor|BSCS|BSIT|BSEE|BSME|BSBA)/i.test(value)) return 'Please enter a valid course (e.g., BSCS, BSIT)';
     return '';
   }
 };
@@ -106,14 +109,11 @@ const validateField = (field: string, value: string) => {
   }
 };
 
-// Validate entire form
+// Validate entire form - simplified for name+course
 const validateForm = (): boolean => {
   const fields = {
-    student_id: studentId.value,
     name: studentName.value,
-    year: studentYear.value,
-    course: studentCourse.value,
-    section: studentSection.value
+    course: studentCourse.value
   };
 
   Object.entries(fields).forEach(([field, value]) => {
@@ -249,6 +249,31 @@ const onDetect = async (detectedCodes: any[]) => {
       studentData.year = normalizeYearLevel(studentData.year);
     }
 
+    // Handle database lookup if needed
+    if (studentData.needsLookup) {
+      try {
+        const lookupResult = await lookupStudentByName(studentData.name, studentData.course);
+        if (lookupResult) {
+          studentData = {
+            ...studentData,
+            student_id: lookupResult.student_id,
+            year: lookupResult.year,
+            course: lookupResult.course,
+            section: lookupResult.section,
+            needsLookup: false
+          };
+          console.log('Student found in database:', studentData);
+        } else {
+          error.value = `Student "${studentData.name}" with course "${studentData.course}" not found in this class or database. Please verify the student is enrolled.`;
+          return;
+        }
+      } catch (lookupErr) {
+        console.warn('Failed to lookup student:', lookupErr);
+        error.value = 'Database lookup failed. Please try again.';
+        return;
+      }
+    }
+
     // Add timestamp and ensure all fields
     studentData = {
       ...studentData,
@@ -294,7 +319,8 @@ const normalizeYearLevel = (year: string): string => {
 
 // Validate student data structure
 const validateStudentData = (data: any): string | null => {
-  if (!data.student_id || typeof data.student_id !== 'string') {
+  // Allow empty student_id if this student needs database lookup
+  if (!data.needsLookup && (!data.student_id || typeof data.student_id !== 'string')) {
     return 'Invalid or missing student ID';
   }
   if (!data.name || typeof data.name !== 'string') {
@@ -310,17 +336,182 @@ const validateStudentData = (data: any): string | null => {
     return 'Invalid section format';
   }
   
-  // Validate year level if provided
-  if (data.year && !/^(1st|2nd|3rd|4th|5th)$/.test(normalizeYearLevel(data.year))) {
+  // Validate year level if provided (skip validation if empty and needs lookup)
+  if (data.year && data.year.trim() !== '' && !/^(1st|2nd|3rd|4th|5th)$/.test(normalizeYearLevel(data.year))) {
     return 'Invalid year level. Must be 1st, 2nd, 3rd, 4th, or 5th year';
   }
   
   return null;
 };
 
+// Lookup student by name in database - use existing QR scan endpoint
+const lookupStudentByName = async (name: string, course: string): Promise<Student | null> => {
+  try {
+    // Create QR data format that the backend already handles
+    const qrData = `${name},${course}`;
+    
+    // Check if sessionId is provided for direct marking  
+    if (props.sessionId) {
+      const response = await fetch(`/teacher/attendance/${props.sessionId}/qr-scan`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        credentials: 'same-origin',
+        body: JSON.stringify({ qr_data: qrData })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          // Student was found and marked as present automatically
+          console.log('Student marked as present:', data.student);
+          return {
+            id: data.student.id?.toString() || `db-${Date.now()}`,
+            student_id: data.student.student_id,
+            name: data.student.name,
+            year: data.student.year || '',
+            course: data.student.course || course,
+            section: data.student.section || ''
+          };
+        } else {
+          throw new Error(data.message || 'Student not found');
+        }
+      } else {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Lookup failed');
+      }
+    } else {
+      // If no session ID, just return null (can't lookup without session context)
+      throw new Error('No attendance session available');
+    }
+  } catch (err) {
+    console.error('Student lookup failed:', err);
+    throw err;
+  }
+};
+
 // Parse QR data from various formats
 const parseQRData = (rawData: string): { student: Student; format: ScanResult['format'] } | null => {
   const trimmedData = rawData.trim();
+  console.log('🔍 Raw QR Data:', JSON.stringify(rawData));
+  console.log('🔍 Trimmed QR Data:', JSON.stringify(trimmedData));
+
+  // Priority 0: Super simple fallback - any comma-separated data with at least 2 parts
+  console.log('🔍 Checking simple fallback - has comma:', trimmedData.includes(','));
+  
+  if (trimmedData.includes(',')) {
+    const simpleParts = trimmedData.split(',');
+    console.log('🔍 Simple split result:', simpleParts);
+    console.log('🔍 Simple parts length:', simpleParts.length);
+    
+    if (simpleParts.length >= 2) {
+      const name = simpleParts[0].trim();
+      const course = simpleParts[1].trim();
+      
+      console.log('🔍 Simple parser - Name after trim:', JSON.stringify(name));
+      console.log('🔍 Simple parser - Course after trim:', JSON.stringify(course));
+      console.log('🔍 Simple parser - Name check:', !!name);
+      console.log('🔍 Simple parser - Course check:', !!course);
+      
+      if (name && course) {
+        console.log('✅ Simple fallback parser SUCCESS - Name:', name, 'Course:', course);
+        return {
+          student: {
+            id: `simple-${Date.now()}`,
+            student_id: '',
+            name: name,
+            year: '',
+            course: course,
+            section: '',
+            timestamp: new Date().toISOString(),
+            needsLookup: true
+          },
+          format: 'name-course'
+        };
+      } else {
+        console.log('❌ Simple fallback failed - empty name or course');
+      }
+    } else {
+      console.log('❌ Simple fallback failed - not enough parts');
+    }
+  } else {
+    console.log('❌ Simple fallback failed - no comma found');
+  }
+
+  // Priority 1: Handle your specific format "EJ FAYE A. DULAY,BSCS,," - with trailing commas
+  const nameCourseParts = trimmedData.split(',').map(part => part.trim()).filter(part => part.length > 0);
+  console.log('🔍 Split parts:', nameCourseParts);
+  
+  if (nameCourseParts.length >= 2) {
+    const studentName = nameCourseParts[0];
+    const course = nameCourseParts[1];
+    
+    console.log('🔍 Student Name:', JSON.stringify(studentName));
+    console.log('🔍 Course:', JSON.stringify(course));
+    
+    // Check if we have a valid name and course
+    if (studentName.length > 0 && course.length > 0) {
+      // Simplified course validation - just check if it's not empty and looks like a course
+      console.log('🔍 Course validation - checking:', course);
+      
+      // More flexible course pattern - accept any BS followed by letters, or common course codes
+      const coursePattern = /^(BS|BSCS|BSIT|BSEE|BSME|BSBA|Bachelor|CS|IT|EE|ME|BA)/i;
+      const courseValid = coursePattern.test(course);
+      
+      console.log('🔍 Course pattern test result:', courseValid);
+      
+      if (courseValid) {
+        console.log('✅ QR Code detected - Name:', studentName, 'Course:', course);
+        
+        return {
+          student: {
+            id: `name-course-${Date.now()}`,
+            student_id: '', // Will be looked up from database
+            name: studentName,
+            year: '', // Will be looked up from database
+            course: course, // Keep original course format
+            section: '', // Will be looked up from database
+            timestamp: new Date().toISOString(),
+            needsLookup: true // This will trigger database lookup to get full student info
+          },
+          format: 'name-course'
+        };
+      } else {
+        console.log('❌ Course validation failed for:', course);
+      }
+    } else {
+      console.log('❌ Name or course is empty - Name:', studentName, 'Course:', course);
+    }
+  } else {
+    console.log('❌ Not enough parts after split. Need at least 2, got:', nameCourseParts.length);
+  }
+
+  // Priority 2: Try strict regex pattern as fallback
+  const nameOnlyMatch = trimmedData.match(/^([^,]+),\s*(BSCS|BSIT|BSEE|BSME|BSBA|BS[A-Z]{2,4}|Bachelor[^,]*),*\s*$/i);
+  if (nameOnlyMatch) {
+    const studentName = nameOnlyMatch[1].trim();
+    const course = nameOnlyMatch[2].trim();
+    
+    console.log('QR Code detected (regex) - Name:', studentName, 'Course:', course);
+    
+    return {
+      student: {
+        id: `regex-${Date.now()}`,
+        student_id: '', // Will be looked up from database
+        name: studentName,
+        year: '', // Will be looked up from database
+        course: course, // Keep original course format
+        section: '', // Will be looked up from database
+        timestamp: new Date().toISOString(),
+        needsLookup: true // This will trigger database lookup to get full student info
+      },
+      format: 'name-course'
+    };
+  }
 
   // Try CSV format: id,name,year,course,section
   const csvMatch = trimmedData.match(/^([^,]+),([^,]+),([^,]*),([^,]*),([^,]*)$/);
@@ -387,6 +578,7 @@ const parseQRData = (rawData: string): { student: Student; format: ScanResult['f
     };
   }
   
+  console.log('❌ No parsing method succeeded for QR data:', JSON.stringify(trimmedData));
   return null;
 };
 
@@ -405,7 +597,7 @@ const generateMockStudent = (): Student => {
   };
 };
 
-// Manual QR processing
+// Manual QR processing - simplified for name,course format
 const processManualInput = async () => {
   if (!manualQrInput.value.trim()) {
     error.value = 'Please enter QR code data';
@@ -417,40 +609,59 @@ const processManualInput = async () => {
     error.value = '';
     formErrors.value = {};
 
+    const rawData = manualQrInput.value.trim();
     let studentData: Student;
-    let format: ScanResult['format'] = 'json';
+    let format: ScanResult['format'] = 'name-course';
 
-    try {
-      studentData = JSON.parse(manualQrInput.value);
-      console.log('Manual QR Code parsed successfully:', studentData);
-    } catch (parseErr) {
-      error.value = 'Invalid JSON format. Please check your QR code data.';
-      return;
+    // Try to parse as simple name,course format first (handle trailing commas)
+    const parts = rawData.split(',').map(part => part.trim()).filter(part => part.length > 0);
+    if (parts.length >= 2) {
+      const name = parts[0];
+      const course = parts[1];
+      
+      console.log('Manual QR processing - Name:', name, 'Course:', course);
+      
+      // Look up student in database
+      const lookupResult = await lookupStudentByName(name, course);
+      
+      if (lookupResult) {
+        studentData = {
+          ...lookupResult,
+          timestamp: new Date().toISOString()
+        };
+      } else {
+        error.value = `Student "${name}" with course "${course}" not found`;
+        return;
+      }
+    } else {
+      // Try JSON format as fallback
+      try {
+        const jsonData = JSON.parse(rawData);
+        if (jsonData.name && jsonData.course) {
+          const lookupResult = await lookupStudentByName(jsonData.name, jsonData.course);
+          if (lookupResult) {
+            studentData = {
+              ...lookupResult,
+              timestamp: new Date().toISOString()
+            };
+            format = 'json';
+          } else {
+            error.value = `Student "${jsonData.name}" not found`;
+            return;
+          }
+        } else {
+          error.value = 'Invalid format. Use "Name,Course" or valid JSON with name and course';
+          return;
+        }
+      } catch (parseErr) {
+        error.value = 'Invalid format. Please use "Name,Course" format (e.g., "Juan Dela Cruz,BSCS")';
+        return;
+      }
     }
 
-    // Validate the parsed data
-    const validationError = validateStudentData(studentData);
-    if (validationError) {
-      error.value = validationError;
-      return;
-    }
-
-    // Normalize year format
-    if (studentData.year) {
-      studentData.year = normalizeYearLevel(studentData.year);
-    }
-
-    studentData = {
-      ...studentData,
-      id: studentData.id || `manual-json-${Date.now()}`,
-      timestamp: new Date().toISOString()
-    };
-
-    await new Promise(resolve => setTimeout(resolve, 800));
-    
     const scanResult: ScanResult = {
       student: studentData,
-      rawData: manualQrInput.value,
+      rawData: rawData,
       format
     };
 
@@ -462,13 +673,13 @@ const processManualInput = async () => {
 
   } catch (err) {
     console.error('Manual scan error:', err);
-    error.value = 'Processing error';
+    error.value = err instanceof Error ? err.message : 'Student lookup failed';
   } finally {
     isLoading.value = false;
   }
 };
 
-// Process manual form submission
+// Process manual form submission - simplified for name+course lookup
 const processManualForm = async () => {
   if (!validateForm()) {
     error.value = 'Please fix the form errors before submitting';
@@ -478,42 +689,43 @@ const processManualForm = async () => {
   try {
     isLoading.value = true;
     error.value = '';
-
-    const studentData: Student = {
-      id: 'manual-form-' + Date.now(),
-      student_id: studentId.value.trim(),
-      name: studentName.value.trim(),
-      year: studentYear.value,
-      course: studentCourse.value.trim(),
-      section: studentSection.value.trim(),
-      timestamp: new Date().toISOString()
-    };
-
-    await new Promise(resolve => setTimeout(resolve, 800));
-    
-    const scanResult: ScanResult = {
-      student: studentData,
-      rawData: 'manual_form',
-      format: 'json'
-    };
-
-    lastScannedStudent.value = studentData;
-    saveToHistory(scanResult);
-    emit('scanSuccess', studentData);
-    
-    // Clear form
-    studentId.value = '';
-    studentName.value = '';
-    studentYear.value = '';
-    studentCourse.value = '';
-    studentSection.value = '';
     formErrors.value = {};
+
+    const name = studentName.value.trim();
+    const course = studentCourse.value.trim();
+
+    // Look up student in database using name and course
+    const lookupResult = await lookupStudentByName(name, course);
     
-    error.value = '';
+    if (lookupResult) {
+      const studentData: Student = {
+        ...lookupResult,
+        timestamp: new Date().toISOString()
+      };
+
+      const scanResult: ScanResult = {
+        student: studentData,
+        rawData: `${name},${course}`,
+        format: 'name-course'
+      };
+
+      lastScannedStudent.value = studentData;
+      saveToHistory(scanResult);
+      emit('scanSuccess', studentData);
+      
+      // Clear form
+      studentName.value = '';
+      studentCourse.value = '';
+      formErrors.value = {};
+      
+      error.value = '';
+    } else {
+      error.value = `Student "${name}" with course "${course}" not found in database`;
+    }
 
   } catch (err) {
     console.error('Manual form error:', err);
-    error.value = 'Processing error';
+    error.value = err instanceof Error ? err.message : 'Student lookup failed';
   } finally {
     isLoading.value = false;
   }
@@ -570,6 +782,164 @@ const switchToManual = () => {
   error.value = '';
 };
 
+// Switch to upload tab
+const switchToUpload = () => {
+  activeTab.value = 'upload';
+  camera.value = 'off';
+  error.value = '';
+  uploadError.value = '';
+};
+
+// Handle file upload
+const handleFileSelect = (event: Event) => {
+  const target = event.target as HTMLInputElement;
+  const file = target.files?.[0];
+  
+  if (file) {
+    uploadedFile.value = file;
+    uploadError.value = '';
+    uploadSuccess.value = '';
+    processUploadedFile(file);
+  }
+};
+
+// Process uploaded CSV file
+const processUploadedFile = async (file: File) => {
+  if (!file) return;
+
+  // Check file type
+  const allowedTypes = ['text/csv', 'application/vnd.ms-excel', 'text/plain'];
+  if (!allowedTypes.includes(file.type) && !file.name.endsWith('.csv')) {
+    uploadError.value = 'Please upload a CSV file';
+    return;
+  }
+
+  try {
+    isUploading.value = true;
+    uploadError.value = '';
+    uploadedStudents.value = [];
+    uploadProgress.value = 0;
+
+    const text = await file.text();
+    const lines = text.split('\n').filter(line => line.trim());
+
+    if (lines.length === 0) {
+      uploadError.value = 'File is empty';
+      isUploading.value = false;
+      return;
+    }
+
+    // Parse CSV
+    const students: Student[] = [];
+    let hasHeader = false;
+
+    // Check if first line is header
+    const firstLine = lines[0].toLowerCase();
+    if (firstLine.includes('student_id') || firstLine.includes('name') || firstLine.includes('id')) {
+      hasHeader = true;
+      lines.shift(); // Remove header
+    }
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+
+      // Split by comma, handling quoted values
+      const values = line.split(',').map(v => v.trim().replace(/^["']|["']$/g, ''));
+
+      if (values.length < 2) {
+        console.warn(`Skipping invalid line ${i + 1}: ${line}`);
+        continue;
+      }
+
+      // Parse student data from CSV
+      // Expected format: student_id, name, year, course, section
+      const student: Student = {
+        id: `upload-${Date.now()}-${i}`,
+        student_id: values[0] || '',
+        name: values[1] || '',
+        year: values[2] ? normalizeYearLevel(values[2]) : '',
+        course: values[3] || '',
+        section: values[4] || '',
+        timestamp: new Date().toISOString()
+      };
+
+      // Validate student data
+      if (student.student_id && student.name) {
+        students.push(student);
+      }
+
+      uploadProgress.value = Math.round(((i + 1) / lines.length) * 100);
+    }
+
+    if (students.length === 0) {
+      uploadError.value = 'No valid student data found in file';
+      isUploading.value = false;
+      return;
+    }
+
+    uploadedStudents.value = students;
+    uploadSuccess.value = `Successfully parsed ${students.length} student(s) from file`;
+    uploadProgress.value = 100;
+
+  } catch (err) {
+    console.error('File upload error:', err);
+    uploadError.value = `Failed to process file: ${err}`;
+  } finally {
+    isUploading.value = false;
+  }
+};
+
+// Save all uploaded students
+const saveUploadedStudents = async () => {
+  if (uploadedStudents.value.length === 0) {
+    uploadError.value = 'No students to save';
+    return;
+  }
+
+  try {
+    isLoading.value = true;
+    uploadError.value = '';
+
+    let savedCount = 0;
+    let errorCount = 0;
+
+    // Process each student
+    for (const student of uploadedStudents.value) {
+      const scanResult: ScanResult = {
+        student,
+        rawData: 'bulk_upload',
+        format: 'file'
+      };
+      
+      saveToHistory(scanResult);
+      emit('scanSuccess', student);
+      savedCount++;
+      
+      // Add small delay between emits
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    uploadSuccess.value = `Successfully added ${savedCount} student(s)`;
+    
+    // Clear upload state after short delay
+    setTimeout(() => {
+      uploadedStudents.value = [];
+      uploadedFile.value = null;
+      uploadProgress.value = 0;
+      if (fileInput.value) {
+        fileInput.value.value = '';
+      }
+    }, 2000);
+
+  } catch (err) {
+    console.error('Save students error:', err);
+    uploadError.value = 'Failed to save students. Please try again.';
+  } finally {
+    isLoading.value = false;
+  }
+};
+
 // Get camera label
 const getCameraLabel = () => {
   switch (camera.value) {
@@ -615,9 +985,9 @@ const getYearBadgeVariant = (year: string) => {
                 <QrCode class="h-6 w-6 text-primary-foreground" />
               </div>
               <div>
-                <h2 class="text-2xl font-bold tracking-tight">Student QR Scanner</h2>
+                <h2 class="text-2xl font-bold tracking-tight">Student Attendance Scanner</h2>
                 <p class="text-sm text-muted-foreground">
-                  Scan student ID cards to mark attendance
+                  Scan name+course QR codes to automatically mark students as present
                 </p>
               </div>
             </div>
@@ -642,14 +1012,14 @@ const getYearBadgeVariant = (year: string) => {
         <Tabs :value="activeTab" class="h-full flex flex-col">
           <div class="flex-shrink-0 border-b bg-muted/30">
             <div class="px-6">
-              <TabsList class="w-full grid grid-cols-2 bg-transparent h-auto p-0">
+              <TabsList class="w-full grid grid-cols-3 bg-transparent h-auto p-0">
                 <TabsTrigger 
                   value="camera" 
                   @click="switchToCamera"
                   class="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent py-3"
                 >
                   <Camera class="h-4 w-4 mr-2" />
-                  Camera Scan
+                  QR Scan (Auto Present)
                   <Badge v-if="!isSecureContext" variant="destructive" class="ml-2 h-4 px-1 text-xs">
                     HTTPS
                   </Badge>
@@ -660,7 +1030,15 @@ const getYearBadgeVariant = (year: string) => {
                   class="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent py-3"
                 >
                   <User class="h-4 w-4 mr-2" />
-                  Manual Entry
+                  Manual Lookup
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="upload" 
+                  @click="switchToUpload"
+                  class="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent py-3"
+                >
+                  <FileUp class="h-4 w-4 mr-2" />
+                  File Upload
                 </TabsTrigger>
               </TabsList>
             </div>
@@ -781,7 +1159,7 @@ const getYearBadgeVariant = (year: string) => {
                         </div>
                         <div>
                           <p class="text-sm font-medium text-blue-900 dark:text-blue-100">How to scan</p>
-                          <p class="text-xs text-blue-700 dark:text-blue-300">Position the student's QR code within the frame. Ensure good lighting.</p>
+                          <p class="text-xs text-blue-700 dark:text-blue-300">Scan QR codes containing student name and course (e.g., "EJ FAYE A. DULAY,BSCS,,"). Students will be automatically marked as present.</p>
                         </div>
                       </div>
                     </CardContent>
@@ -910,30 +1288,12 @@ const getYearBadgeVariant = (year: string) => {
                     <div class="mx-auto mb-4 w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
                       <User class="h-8 w-8 text-primary" />
                     </div>
-                    <CardTitle>Manual Student Entry</CardTitle>
+                    <CardTitle>Manual Student Lookup</CardTitle>
                     <p class="text-sm text-muted-foreground">
-                      Enter student details to mark attendance
+                      Enter student name and course to find and mark as present
                     </p>
                   </CardHeader>
                   <CardContent class="space-y-4">
-                    <div class="space-y-2">
-                      <Label for="studentId" class="flex items-center gap-2">
-                        <Hash class="h-4 w-4 text-muted-foreground" />
-                        Student ID *
-                      </Label>
-                      <Input
-                        id="studentId"
-                        v-model="studentId"
-                        placeholder="Enter student ID (e.g., STU-001)"
-                        :disabled="isLoading"
-                        @blur="validateField('student_id', studentId)"
-                        :class="{ 'border-destructive': formErrors.student_id }"
-                      />
-                      <p v-if="formErrors.student_id" class="text-sm text-destructive">
-                        {{ formErrors.student_id }}
-                      </p>
-                    </div>
-                    
                     <div class="space-y-2">
                       <Label for="studentName" class="flex items-center gap-2">
                         <User class="h-4 w-4 text-muted-foreground" />
@@ -942,7 +1302,7 @@ const getYearBadgeVariant = (year: string) => {
                       <Input
                         id="studentName"
                         v-model="studentName"
-                        placeholder="Enter student full name"
+                        placeholder="Enter student full name (e.g., Juan Dela Cruz)"
                         :disabled="isLoading"
                         @blur="validateField('name', studentName)"
                         :class="{ 'border-destructive': formErrors.name }"
@@ -953,91 +1313,64 @@ const getYearBadgeVariant = (year: string) => {
                     </div>
                     
                     <div class="space-y-2">
-                      <Label for="studentYear" class="flex items-center gap-2">
-                        <GraduationCap class="h-4 w-4 text-muted-foreground" />
-                        Year Level
+                      <Label for="studentCourse" class="flex items-center gap-2">
+                        <BookOpen class="h-4 w-4 text-muted-foreground" />
+                        Course *
                       </Label>
-                      <Select v-model="studentYear" @update:modelValue="validateField('year', studentYear)">
-                        <SelectTrigger :class="{ 'border-destructive': formErrors.year }">
-                          <SelectValue placeholder="Select year level" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem v-for="level in yearLevels" :key="level.value" :value="level.value">
-                            {{ level.label }}
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <p v-if="formErrors.year" class="text-sm text-destructive">
-                        {{ formErrors.year }}
+                      <Input
+                        id="studentCourse"
+                        v-model="studentCourse"
+                        placeholder="Enter course (e.g., BSCS, BSIT, BSEE)"
+                        :disabled="isLoading"
+                        @blur="validateField('course', studentCourse)"
+                        :class="{ 'border-destructive': formErrors.course }"
+                      />
+                      <p v-if="formErrors.course" class="text-sm text-destructive">
+                        {{ formErrors.course }}
                       </p>
                     </div>
-                    
-                    <div class="grid grid-cols-2 gap-4">
-                      <div class="space-y-2">
-                        <Label for="studentCourse">Course</Label>
-                        <Input
-                          id="studentCourse"
-                          v-model="studentCourse"
-                          placeholder="e.g., BSCS"
-                          :disabled="isLoading"
-                          @blur="validateField('course', studentCourse)"
-                          :class="{ 'border-destructive': formErrors.course }"
-                        />
-                        <p v-if="formErrors.course" class="text-sm text-destructive">
-                          {{ formErrors.course }}
-                        </p>
-                      </div>
-                      
-                      <div class="space-y-2">
-                        <Label for="studentSection">Section</Label>
-                        <Input
-                          id="studentSection"
-                          v-model="studentSection"
-                          placeholder="e.g., A"
-                          :disabled="isLoading"
-                          @blur="validateField('section', studentSection)"
-                          :class="{ 'border-destructive': formErrors.section }"
-                        />
-                        <p v-if="formErrors.section" class="text-sm text-destructive">
-                          {{ formErrors.section }}
-                        </p>
-                      </div>
-                    </div>
+
+                    <Alert class="border-blue-200 bg-blue-50 text-blue-900 dark:bg-blue-950 dark:text-blue-100">
+                      <CheckCircle class="h-4 w-4 text-blue-600" />
+                      <AlertDescription class="text-sm">
+                        Only name and course are required. The system will automatically look up the student and mark them as present.
+                      </AlertDescription>
+                    </Alert>
 
                     <Button 
                       @click="processManualForm" 
-                      :disabled="isLoading || !studentId.trim() || !studentName.trim() || Object.values(formErrors).some(e => e)" 
+                      :disabled="isLoading || !studentName.trim() || !studentCourse.trim() || Object.values(formErrors).some(e => e)" 
                       class="w-full"
                       size="lg"
                     >
                       <CheckCircle class="mr-2 h-5 w-5" />
-                      {{ isLoading ? 'Processing...' : 'Mark Attendance' }}
+                      {{ isLoading ? 'Finding Student & Marking Present...' : 'Find Student & Mark Present' }}
                     </Button>
                   </CardContent>
                 </Card>
 
-                <!-- JSON Input (Alternative) -->
+                <!-- Simple Text Input (Alternative) -->
                 <Card>
                   <CardHeader>
                     <CardTitle class="flex items-center gap-2">
                       <QrCode class="h-5 w-5 text-muted-foreground" />
-                      JSON Input
+                      QR Code Text
                     </CardTitle>
                     <p class="text-sm text-muted-foreground">
-                      Paste JSON data from QR code
+                      Paste raw QR code data (name,course format)
                     </p>
                   </CardHeader>
                   <CardContent class="space-y-4">
                     <div class="space-y-2">
-                      <Label>QR Code JSON Data</Label>
+                      <Label>QR Code Data</Label>
                       <Textarea
                         v-model="manualQrInput"
-                        placeholder='{"student_id": "STU-001", "name": "John Doe", "year": "2nd", "course": "BSCS", "section": "A"}'
+                        placeholder='EJ FAYE A. DULAY,BSCS,,'
                         class="min-h-[120px] font-mono text-sm resize-none"
                         :disabled="isLoading"
                       />
                       <p class="text-xs text-muted-foreground">
-                        Enter valid JSON format with student information. Year should be 1st, 2nd, 3rd, 4th, or 5th.
+                        Enter QR code data in the format: "Student Name,Course,," (e.g., "EJ FAYE A. DULAY,BSCS,,")
                       </p>
                     </div>
 
@@ -1048,7 +1381,7 @@ const getYearBadgeVariant = (year: string) => {
                       size="lg"
                     >
                       <CheckCircle class="mr-2 h-5 w-5" />
-                      {{ isLoading ? 'Processing...' : 'Mark Attendance from JSON' }}
+                      {{ isLoading ? 'Finding Student...' : 'Find Student & Mark Present' }}
                     </Button>
                   </CardContent>
                 </Card>
@@ -1159,6 +1492,159 @@ const getYearBadgeVariant = (year: string) => {
                   <p class="text-sm font-medium text-muted-foreground mb-1">No entries yet</p>
                   <p class="text-xs text-muted-foreground">
                     Add a student to get started
+                  </p>
+                </div>
+              </div>
+            </div>
+          </TabsContent>
+
+          <!-- File Upload Tab Content -->
+          <TabsContent value="upload" class="flex-1 m-0 p-6 overflow-auto data-[state=inactive]:hidden">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full">
+              <!-- Upload Section -->
+              <div class="space-y-6">
+                <Card>
+                  <CardHeader class="text-center pb-4">
+                    <div class="mx-auto mb-4 w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
+                      <FileUp class="h-8 w-8 text-primary" />
+                    </div>
+                    <CardTitle>Bulk Student Upload</CardTitle>
+                    <p class="text-sm text-muted-foreground">
+                      Upload a CSV file to import multiple students at once
+                    </p>
+                  </CardHeader>
+
+                  <CardContent class="space-y-4">
+                    <!-- File Input -->
+                    <div class="space-y-2">
+                      <Label>Select CSV File</Label>
+                      <div class="flex gap-2">
+                        <Input
+                          ref="fileInput"
+                          type="file"
+                          accept=".csv,text/csv,application/vnd.ms-excel"
+                          @change="handleFileSelect"
+                          :disabled="isLoading || isUploading"
+                          class="flex-1"
+                        />
+                      </div>
+                      <p class="text-xs text-muted-foreground">
+                        CSV format: student_id, name, year, course, section
+                      </p>
+                    </div>
+
+                    <!-- Upload Progress -->
+                    <div v-if="isUploading" class="space-y-2">
+                      <div class="flex items-center justify-between text-sm">
+                        <span class="text-muted-foreground">Processing file...</span>
+                        <span class="font-medium">{{ uploadProgress }}%</span>
+                      </div>
+                      <div class="w-full bg-muted rounded-full h-2 overflow-hidden">
+                        <div 
+                          class="bg-primary h-full transition-all duration-300 ease-out" 
+                          :style="{ width: `${uploadProgress}%` }"
+                        ></div>
+                      </div>
+                    </div>
+
+                    <!-- Success Message -->
+                    <Alert v-if="uploadSuccess" class="border-green-200 bg-green-50 text-green-900 dark:bg-green-950 dark:text-green-100">
+                      <CheckCircle class="h-4 w-4 text-green-600" />
+                      <AlertDescription>{{ uploadSuccess }}</AlertDescription>
+                    </Alert>
+
+                    <!-- Error Message -->
+                    <Alert v-if="uploadError" variant="destructive">
+                      <AlertCircle class="h-4 w-4" />
+                      <AlertDescription>{{ uploadError }}</AlertDescription>
+                    </Alert>
+
+                    <!-- CSV Format Guide -->
+                    <Card class="bg-muted/50">
+                      <CardHeader class="pb-3">
+                        <CardTitle class="text-sm">CSV Format Example</CardTitle>
+                      </CardHeader>
+                      <CardContent class="space-y-2">
+                        <div class="bg-background rounded-md p-3 font-mono text-xs overflow-x-auto">
+                          <div class="text-muted-foreground mb-2">// With header (recommended):</div>
+                          <div>student_id,name,year,course,section</div>
+                          <div>STU-001,John Doe,1st,BSCS,A</div>
+                          <div>STU-002,Jane Smith,2nd,BSIT,B</div>
+                          <div class="mt-3 text-muted-foreground">// Without header:</div>
+                          <div>STU-001,John Doe,1st,BSCS,A</div>
+                          <div>STU-002,Jane Smith,2nd,BSIT,B</div>
+                        </div>
+                        <p class="text-xs text-muted-foreground">
+                          • First two columns (student_id, name) are required<br>
+                          • Year must be: 1st, 2nd, 3rd, 4th, or 5th<br>
+                          • Course and section are optional
+                        </p>
+                      </CardContent>
+                    </Card>
+
+                    <!-- Save Button -->
+                    <Button 
+                      @click="saveUploadedStudents" 
+                      :disabled="uploadedStudents.length === 0 || isLoading"
+                      class="w-full"
+                      size="lg"
+                    >
+                      <CheckCircle class="mr-2 h-5 w-5" />
+                      {{ isLoading ? 'Saving...' : `Save ${uploadedStudents.length} Student(s)` }}
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <!-- Preview Section -->
+              <div class="space-y-6">
+                <Card v-if="uploadedStudents.length > 0">
+                  <CardHeader>
+                    <CardTitle class="text-sm flex items-center justify-between">
+                      <span>Parsed Students</span>
+                      <Badge variant="secondary">{{ uploadedStudents.length }}</Badge>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent class="p-0">
+                    <div class="max-h-[600px] overflow-y-auto">
+                      <div v-for="(student, index) in uploadedStudents" :key="student.id" 
+                           class="p-3 border-b last:border-b-0 hover:bg-muted/50 transition-colors">
+                        <div class="flex items-start gap-3">
+                          <div class="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                            <span class="text-xs font-semibold text-primary">{{ index + 1 }}</span>
+                          </div>
+                          <div class="flex-1 min-w-0 space-y-1">
+                            <p class="text-sm font-medium truncate">{{ student.name }}</p>
+                            <div class="flex flex-wrap items-center gap-2 text-xs">
+                              <Badge variant="outline" class="font-mono">
+                                {{ student.student_id }}
+                              </Badge>
+                              <Badge v-if="student.year" :variant="getYearBadgeVariant(student.year)">
+                                {{ student.year }}
+                              </Badge>
+                              <span v-if="student.course" class="text-muted-foreground">
+                                {{ student.course }}
+                              </span>
+                              <span v-if="student.section" class="text-muted-foreground">
+                                Sec {{ student.section }}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <!-- Empty State -->
+                <div v-if="uploadedStudents.length === 0" 
+                     class="text-center py-12 h-full flex flex-col items-center justify-center border-2 border-dashed rounded-xl border-muted">
+                  <div class="mx-auto mb-3 w-12 h-12 bg-muted rounded-full flex items-center justify-center">
+                    <FileUp class="h-6 w-6 text-muted-foreground" />
+                  </div>
+                  <p class="text-sm font-medium text-muted-foreground mb-1">No file uploaded</p>
+                  <p class="text-xs text-muted-foreground">
+                    Select a CSV file to import students
                   </p>
                 </div>
               </div>

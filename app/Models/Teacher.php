@@ -4,6 +4,8 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Teacher extends Model
 {
@@ -15,24 +17,39 @@ class Teacher extends Model
         'first_name',
         'last_name',
         'middle_name',
+        'employee_id',
+        'first_name',
+        'last_name',
         'email',
         'phone',
         'department',
         'position',
         'salary',
         'profile_picture',
+        'avatar',
         'is_active'
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
-        'salary' => 'decimal:2'
+        'created_at' => 'datetime',
+        'updated_at' => 'datetime'
     ];
 
-    /**
-     * Get the user that owns the teacher record
-     */
-    public function user()
+    // Override the mutator to handle PostgreSQL boolean conversion
+    public function setIsActiveAttribute($value)
+    {
+        $this->attributes['is_active'] = $value ? 'true' : 'false';
+    }
+
+    // Override the accessor to ensure boolean return
+    public function getIsActiveAttribute($value)
+    {
+        return filter_var($value, FILTER_VALIDATE_BOOLEAN);
+    }
+
+    // Relationships
+    public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }
