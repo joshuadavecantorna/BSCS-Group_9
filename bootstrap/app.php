@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\CheckUserRole;
 use App\Http\Middleware\RedirectBasedOnRole;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -22,6 +23,10 @@ return Application::configure(basePath: dirname(__DIR__))
             HandleInertiaRequests::class,
             RedirectBasedOnRole::class,
             AddLinkHeadersForPreloadedAssets::class,
+        ]);
+
+        $middleware->alias([
+            'role' => CheckUserRole::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

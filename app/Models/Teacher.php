@@ -13,6 +13,10 @@ class Teacher extends Model
 
     protected $fillable = [
         'user_id',
+        'teacher_id',
+        'first_name',
+        'last_name',
+        'middle_name',
         'employee_id',
         'first_name',
         'last_name',
@@ -20,6 +24,8 @@ class Teacher extends Model
         'phone',
         'department',
         'position',
+        'salary',
+        'profile_picture',
         'avatar',
         'is_active'
     ];
@@ -48,29 +54,34 @@ class Teacher extends Model
         return $this->belongsTo(User::class);
     }
 
-    public function classes(): HasMany
+    /**
+     * Get the classes taught by this teacher
+     */
+    public function classes()
     {
-        return $this->hasMany(ClassModel::class, 'teacher_id');
+        return $this->hasMany(ClassModel::class, 'teacher_id', 'user_id');
     }
 
-    public function attendanceSessions(): HasMany
+    /**
+     * Get the full name attribute
+     */
+    public function getFullNameAttribute()
     {
-        return $this->hasMany(AttendanceSession::class);
+        $name = trim($this->first_name . ' ' . $this->last_name);
+        if ($this->middle_name) {
+            $name = $this->first_name . ' ' . $this->middle_name . ' ' . $this->last_name;
+        }
+        return $name;
     }
 
-    public function classFiles(): HasMany
+    /**
+     * Get the name for display (falls back to user name if teacher names not set)
+     */
+    public function getDisplayNameAttribute()
     {
-        return $this->hasMany(ClassFile::class);
-    }
-
-    // Accessors
-    public function getFullNameAttribute(): string
-    {
-        return $this->first_name . ' ' . $this->last_name;
-    }
-
-    public function getInitialsAttribute(): string
-    {
-        return strtoupper(substr($this->first_name, 0, 1) . substr($this->last_name, 0, 1));
+        if ($this->first_name && $this->last_name) {
+            return $this->full_name;
+        }
+        return $this->user ? $this->user->name : 'Unknown Teacher';
     }
 }

@@ -12,12 +12,14 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('class_models', function (Blueprint $table) {
-            $table->string('class_code')->nullable()->after('course');
-        });
+        if (!Schema::hasColumn('class_models', 'class_code')) {
+            Schema::table('class_models', function (Blueprint $table) {
+                $table->string('class_code')->nullable()->after('course');
+            });
+        }
         
         // Generate class codes for existing records
-        DB::statement("UPDATE class_models SET class_code = CONCAT(course, '-', section, '-', year, '-', EXTRACT(EPOCH FROM created_at)::int) WHERE class_code IS NULL");
+        DB::statement("UPDATE class_models SET class_code = CONCAT(course, '-', section, '-', year, '-', UNIX_TIMESTAMP(created_at)) WHERE class_code IS NULL");
         
         // Make class_code required and unique after populating existing records
         Schema::table('class_models', function (Blueprint $table) {
@@ -30,8 +32,10 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('class_models', function (Blueprint $table) {
-            $table->dropColumn('class_code');
-        });
+        if (Schema::hasColumn('class_models', 'class_code')) {
+            Schema::table('class_models', function (Blueprint $table) {
+                $table->dropColumn('class_code');
+            });
+        }
     }
 };
