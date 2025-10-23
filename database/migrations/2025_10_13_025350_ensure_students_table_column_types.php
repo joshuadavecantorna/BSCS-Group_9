@@ -14,12 +14,16 @@ return new class extends Migration
     {
     // Fix any data type mismatches in the students table
     // 1. Force is_active to boolean for all rows
-    DB::statement("UPDATE students SET is_active = CASE WHEN CAST(is_active AS CHAR) IN ('1', 't', 'true', 'TRUE', 'yes', 'YES') THEN 1 ELSE 0 END WHERE is_active IS NOT NULL");
-    Schema::table('students', function (Blueprint $table) {
-        $table->boolean('is_active')->default(true)->nullable(false)->change();
-        $table->timestamp('created_at')->nullable(false)->useCurrent()->change();
-        $table->timestamp('updated_at')->nullable(false)->useCurrent()->change();
-    });
+    DB::statement("UPDATE students SET is_active = CASE WHEN is_active::text IN ('1', 't', 'true', 'TRUE', 'yes', 'YES') THEN 'true' ELSE 'false' END WHERE is_active IS NOT NULL");
+    DB::statement('ALTER TABLE students ALTER COLUMN is_active TYPE boolean USING is_active::boolean');
+    DB::statement('ALTER TABLE students ALTER COLUMN is_active SET DEFAULT true');
+    DB::statement('ALTER TABLE students ALTER COLUMN is_active SET NOT NULL');
+
+    // 2. Force created_at and updated_at to proper timestamp for all rows
+    DB::statement("UPDATE students SET created_at = CASE WHEN created_at IS NULL OR created_at = '' THEN NOW() ELSE created_at END");
+    DB::statement("UPDATE students SET updated_at = CASE WHEN updated_at IS NULL OR updated_at = '' THEN NOW() ELSE updated_at END");
+    DB::statement('ALTER TABLE students ALTER COLUMN created_at TYPE timestamp USING created_at::timestamp');
+    DB::statement('ALTER TABLE students ALTER COLUMN updated_at TYPE timestamp USING updated_at::timestamp');
     }
 
     /**

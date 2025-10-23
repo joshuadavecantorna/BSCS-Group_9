@@ -13,11 +13,11 @@ return new class extends Migration
     public function up(): void
     {
         // First, convert any integer values to boolean
-        DB::statement("UPDATE class_models SET is_active = CASE WHEN CAST(is_active AS CHAR) = '1' OR CAST(is_active AS CHAR) = 't' OR CAST(is_active AS CHAR) = 'true' THEN 1 ELSE 0 END WHERE is_active IS NOT NULL");
+        DB::statement("UPDATE class_models SET is_active = CASE WHEN is_active::text = '1' OR is_active::text = 't' OR is_active::text = 'true' THEN true ELSE false END WHERE is_active IS NOT NULL");
         
-        Schema::table('class_models', function (Blueprint $table) {
-            $table->boolean('is_active')->default(true)->nullable(false)->change();
-        });
+        // Drop and recreate the column as boolean with default
+        DB::statement('ALTER TABLE class_models DROP COLUMN IF EXISTS is_active');
+        DB::statement('ALTER TABLE class_models ADD COLUMN is_active boolean NOT NULL DEFAULT true');
     }
 
     /**

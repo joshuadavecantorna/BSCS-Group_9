@@ -123,7 +123,9 @@ const handleFileUploaded = (response: any) => {
               </div>
               <div class="flex items-center gap-2">
                 <Badge variant="secondary">BSCS-A</Badge>
-                <Button size="sm" variant="outline">Download</Button>
+                <button type="button" class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium h-8 px-3 border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground" @click="showUnderDevelopmentAlert">
+                  Download
+                </button>
               </div>
             </div>
 
@@ -137,7 +139,9 @@ const handleFileUploaded = (response: any) => {
               </div>
               <div class="flex items-center gap-2">
                 <Badge variant="secondary">BSCS-B</Badge>
-                <Button size="sm" variant="outline">Download</Button>
+                <button type="button" class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium h-8 px-3 border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground" @click="showUnderDevelopmentAlert">
+                  Download
+                </button>
               </div>
             </div>
 
@@ -151,14 +155,16 @@ const handleFileUploaded = (response: any) => {
               </div>
               <div class="flex items-center gap-2">
                 <Badge variant="secondary">BSCS-A</Badge>
-                <Button size="sm" variant="outline">Download</Button>
+                <button type="button" class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium h-8 px-3 border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground" @click="showUnderDevelopmentAlert">
+                  Download
+                </button>
               </div>
             </div>
 
             <div class="text-center py-4">
-              <Button variant="outline" @click="showUnderDevelopmentAlert">
+              <button type="button" class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium h-8 px-3 border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground" @click="showUnderDevelopmentAlert">
                 View All Files
-              </Button>
+              </button>
             </div>
           </div>
         </CardContent>
