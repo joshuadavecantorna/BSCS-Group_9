@@ -52,6 +52,7 @@ const breadcrumbs = [
 
 const showCreateSessionDialog = ref(false);
 const showManageSessionDialog = ref(false);
+const showComingSoonDialog = ref(false);
 const selectedSession = ref<any>(null);
 
 // Create attendance session form
@@ -134,6 +135,11 @@ const manageSession = async (session: any) => {
   }
   
   showManageSessionDialog.value = true;
+};
+
+// Show coming soon dialog
+const showComingSoon = () => {
+  showComingSoonDialog.value = true;
 };
 
 // Update attendance records
@@ -441,7 +447,7 @@ const exportSession = () => {
             </div>
 
             <div class="text-center py-4">
-              <Button variant="outline" @click="$inertia.visit('/teacher/attendance/history')">
+              <Button variant="outline" @click="showComingSoon">
                 View All Sessions
               </Button>
             </div>
@@ -584,6 +590,25 @@ const exportSession = () => {
       </DialogContent>
     </Dialog>
 
+    <!-- Coming Soon Dialog -->
+    <Dialog v-model:open="showComingSoonDialog">
+      <DialogContent class="sm:max-w-[400px]">
+        <DialogHeader>
+          <DialogTitle class="flex items-center gap-2">
+            <Clock class="h-5 w-5 text-blue-500" />
+            Coming Soon
+          </DialogTitle>
+          <DialogDescription>
+            The "View All Sessions" feature is currently under development and will be available in a future update.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button @click="showComingSoonDialog = false">
+            Got it
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
   </AppLayout>
 </template>

@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { CheckCircle, XCircle, AlertCircle, Calendar, Filter, Search } from 'lucide-vue-next';
+import { CheckCircle, XCircle, AlertCircle, Calendar, Filter, Search, X } from 'lucide-vue-next';
 import { ref, computed } from 'vue';
 
 // Props from StudentController
@@ -171,30 +171,31 @@ const clearFilters = () => {
           <CardDescription>Filter your attendance records by class, status, or date range</CardDescription>
         </CardHeader>
         <CardContent>
-          <div class="grid gap-4 md:grid-cols-5">
-            <!-- Search -->
-            <div class="space-y-2">
-              <label class="text-sm font-medium">Search</label>
+          <!-- Mobile-responsive filter grid -->
+          <div class="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-5">
+            <!-- Search - Takes full width on mobile, spans 2 columns on larger screens -->
+            <div class="space-y-2 sm:col-span-2 lg:col-span-1">
+              <label class="text-sm font-medium text-foreground">Search</label>
               <div class="relative">
                 <Search class="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input 
                   v-model="filters.search" 
                   placeholder="Search classes..."
-                  class="pl-10"
+                  class="pl-10 bg-background border-input hover:border-ring focus:border-ring transition-colors dark:bg-background dark:border-input dark:text-foreground"
                 />
               </div>
             </div>
 
             <!-- Class Filter -->
             <div class="space-y-2">
-              <label class="text-sm font-medium">Class</label>
+              <label class="text-sm font-medium text-foreground">Class</label>
               <Select v-model="filters.class">
-                <SelectTrigger>
-                  <SelectValue placeholder="All classes" />
+                <SelectTrigger class="bg-background border-input hover:border-ring focus:border-ring transition-colors dark:bg-background dark:border-input">
+                  <SelectValue placeholder="All classes" class="text-foreground" />
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">All classes</SelectItem>
-                  <SelectItem v-for="cls in classes" :key="cls.value" :value="cls.value">
+                <SelectContent class="bg-background border-input dark:bg-background dark:border-input">
+                  <SelectItem value="" class="hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground">All classes</SelectItem>
+                  <SelectItem v-for="cls in classes" :key="cls.value" :value="cls.value" class="hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground">
                     {{ cls.label }}
                   </SelectItem>
                 </SelectContent>
@@ -203,33 +204,35 @@ const clearFilters = () => {
 
             <!-- Status Filter -->
             <div class="space-y-2">
-              <label class="text-sm font-medium">Status</label>
+              <label class="text-sm font-medium text-foreground">Status</label>
               <Select v-model="filters.status">
-                <SelectTrigger>
-                  <SelectValue placeholder="All statuses" />
+                <SelectTrigger class="bg-background border-input hover:border-ring focus:border-ring transition-colors dark:bg-background dark:border-input">
+                  <SelectValue placeholder="All statuses" class="text-foreground" />
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">All statuses</SelectItem>
-                  <SelectItem value="present">Present</SelectItem>
-                  <SelectItem value="absent">Absent</SelectItem>
-                  <SelectItem value="excused">Excused</SelectItem>
+                <SelectContent class="bg-background border-input dark:bg-background dark:border-input">
+                  <SelectItem value="" class="hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground">All statuses</SelectItem>
+                  <SelectItem value="present" class="hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground">Present</SelectItem>
+                  <SelectItem value="absent" class="hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground">Absent</SelectItem>
+                  <SelectItem value="excused" class="hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground">Excused</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             <!-- Start Date -->
             <div class="space-y-2">
-              <label class="text-sm font-medium">Start Date</label>
+              <label class="text-sm font-medium text-foreground">Start Date</label>
               <Input 
                 v-model="filters.startDate" 
                 type="date"
+                class="bg-background border-input hover:border-ring focus:border-ring transition-colors dark:bg-background dark:border-input dark:text-foreground"
               />
             </div>
 
             <!-- Clear Filters -->
             <div class="space-y-2">
               <label class="text-sm font-medium invisible">Clear</label>
-              <Button @click="clearFilters" variant="outline" class="w-full">
+              <Button @click="clearFilters" variant="outline" class="w-full hover:bg-accent hover:text-accent-foreground transition-colors">
+                <X class="h-4 w-4 mr-2" />
                 Clear Filters
               </Button>
             </div>
@@ -248,30 +251,30 @@ const clearFilters = () => {
             <!-- Records List -->
             <div class="space-y-3">
               <div v-for="record in filteredRecords" :key="record.id" 
-                   class="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors">
-                <div class="flex items-center space-x-4">
+                   class="flex flex-col sm:flex-row sm:items-center sm:justify-between p-4 border border-border rounded-lg hover:bg-accent/50 transition-colors bg-card">
+                <div class="flex items-center space-x-4 mb-3 sm:mb-0">
                   <component :is="getStatusIcon(record.status)" 
                              :class="[
-                               'h-5 w-5',
-                               record.status === 'present' ? 'text-green-600' :
-                               record.status === 'absent' ? 'text-red-600' : 'text-yellow-600'
+                               'h-5 w-5 flex-shrink-0',
+                               record.status === 'present' ? 'text-green-600 dark:text-green-400' :
+                               record.status === 'absent' ? 'text-red-600 dark:text-red-400' : 'text-yellow-600 dark:text-yellow-400'
                              ]" />
                   
-                  <div>
-                    <div class="font-medium">{{ record.class_name }}</div>
+                  <div class="min-w-0 flex-1">
+                    <div class="font-medium text-foreground truncate">{{ record.class_name }}</div>
                     <div class="text-sm text-muted-foreground">Session {{ record.session_date }}</div>
                   </div>
                 </div>
 
-                <div class="flex items-center space-x-4">
+                <div class="flex items-center justify-between sm:justify-end space-x-4">
                   <!-- Date -->
-                  <div class="text-right">
-                    <div class="text-sm font-medium">{{ record.session_date }}</div>
+                  <div class="text-left sm:text-right">
+                    <div class="text-sm font-medium text-foreground">{{ record.session_date }}</div>
                     <div class="text-xs text-muted-foreground">Start: {{ record.start_time?.slice(11,16) || '—' }}</div>
                   </div>
 
                   <!-- Status Badge -->
-                  <Badge :variant="getStatusColor(record.status)">
+                  <Badge :variant="getStatusColor(record.status)" class="flex-shrink-0">
                     {{ record.status.charAt(0).toUpperCase() + record.status.slice(1) }}
                   </Badge>
                 </div>
@@ -279,10 +282,10 @@ const clearFilters = () => {
             </div>
 
             <!-- No Records Message -->
-            <div v-if="filteredRecords.length === 0" class="text-center py-8">
-              <Calendar class="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <h3 class="text-lg font-medium mb-2">No records found</h3>
-              <p class="text-muted-foreground">Try adjusting your filters to see more results.</p>
+            <div v-if="filteredRecords.length === 0" class="text-center py-12">
+              <Calendar class="h-16 w-16 text-muted-foreground mx-auto mb-4" />
+              <h3 class="text-lg font-medium text-foreground mb-2">No records found</h3>
+              <p class="text-muted-foreground max-w-md mx-auto">Try adjusting your filters to see more results, or check back later for new attendance records.</p>
             </div>
           </div>
         </CardContent>

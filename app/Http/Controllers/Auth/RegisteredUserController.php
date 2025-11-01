@@ -90,23 +90,24 @@ class RegisteredUserController extends Controller
             $this->parseClassCode($request->class_code, $yearLevel, $course, $section);
         }
 
-        Student::create([
+        // Create student with explicit PostgreSQL boolean handling
+        $student = new Student();
+        $student->student_id = $studentId;
+        $student->name = $user->name;
+        $student->email = $user->email;
+        $student->year = $yearLevel;
+        $student->course = $course;
+        $student->section = $section;
+        $student->qr_data = [
             'student_id' => $studentId,
             'name' => $user->name,
             'email' => $user->email,
             'year' => $yearLevel,
             'course' => $course,
             'section' => $section,
-            'qr_data' => json_encode([
-                'student_id' => $studentId,
-                'name' => $user->name,
-                'email' => $user->email,
-                'year' => $yearLevel,
-                'course' => $course,
-                'section' => $section,
-            ]),
-            'is_active' => true,
-        ]);
+        ];
+        $student->is_active = true;
+        $student->save();
     }
 
     /**
@@ -125,16 +126,13 @@ class RegisteredUserController extends Controller
 
         Teacher::create([
             'user_id' => $user->id,
-            'teacher_id' => $teacherId,
+            'employee_id' => $teacherId,
             'first_name' => $firstName,
             'last_name' => $lastName,
-            'middle_name' => $middleName,
             'email' => $user->email,
             'phone' => null,
             'department' => 'Computer Science',
             'position' => 'Instructor',
-            'salary' => null,
-            'profile_picture' => null,
             'is_active' => true,
         ]);
     }
@@ -164,9 +162,9 @@ class RegisteredUserController extends Controller
      */
     private function generateTeacherId(): string
     {
-        $lastTeacher = Teacher::orderBy('teacher_id', 'desc')->first();
+        $lastTeacher = Teacher::orderBy('employee_id', 'desc')->first();
 
-        if ($lastTeacher && preg_match('/TEACH-(\d+)/', $lastTeacher->teacher_id, $matches)) {
+        if ($lastTeacher && preg_match('/TEACH-(\d+)/', $lastTeacher->employee_id, $matches)) {
             $lastNumber = (int) $matches[1];
             $newNumber = $lastNumber + 1;
         } else {

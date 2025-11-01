@@ -13,10 +13,6 @@ class Teacher extends Model
 
     protected $fillable = [
         'user_id',
-        'teacher_id',
-        'first_name',
-        'last_name',
-        'middle_name',
         'employee_id',
         'first_name',
         'last_name',
@@ -24,8 +20,6 @@ class Teacher extends Model
         'phone',
         'department',
         'position',
-        'salary',
-        'profile_picture',
         'avatar',
         'is_active'
     ];
@@ -39,7 +33,16 @@ class Teacher extends Model
     // Override the mutator to handle PostgreSQL boolean conversion
     public function setIsActiveAttribute($value)
     {
-        $this->attributes['is_active'] = $value ? 'true' : 'false';
+        // Convert to PostgreSQL boolean format
+        if (is_bool($value)) {
+            $this->attributes['is_active'] = $value ? 'true' : 'false';
+        } elseif (is_numeric($value)) {
+            $this->attributes['is_active'] = $value == 1 ? 'true' : 'false';
+        } elseif (is_string($value)) {
+            $this->attributes['is_active'] = in_array(strtolower($value), ['true', '1', 'yes', 'on']) ? 'true' : 'false';
+        } else {
+            $this->attributes['is_active'] = 'false';
+        }
     }
 
     // Override the accessor to ensure boolean return

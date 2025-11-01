@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Log;
 
 class Student extends Model
 {
@@ -30,6 +31,36 @@ class Student extends Model
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
+
+    // Override the mutator to handle PostgreSQL boolean conversion
+    public function setIsActiveAttribute($value)
+    {
+        Log::info('Student setIsActiveAttribute called', [
+            'value' => $value,
+            'type' => gettype($value)
+        ]);
+        
+        // Convert to PostgreSQL boolean format
+        if (is_bool($value)) {
+            $this->attributes['is_active'] = $value ? 'true' : 'false';
+        } elseif (is_numeric($value)) {
+            $this->attributes['is_active'] = $value == 1 ? 'true' : 'false';
+        } elseif (is_string($value)) {
+            $this->attributes['is_active'] = in_array(strtolower($value), ['true', '1', 'yes', 'on']) ? 'true' : 'false';
+        } else {
+            $this->attributes['is_active'] = 'false';
+        }
+        
+        Log::info('Student setIsActiveAttribute result', [
+            'stored_value' => $this->attributes['is_active']
+        ]);
+    }
+
+    // Override the accessor to ensure boolean return
+    public function getIsActiveAttribute($value)
+    {
+        return filter_var($value, FILTER_VALIDATE_BOOLEAN);
+    }
 
     public function user()
     {
