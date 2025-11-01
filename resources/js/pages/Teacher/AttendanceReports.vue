@@ -46,10 +46,10 @@ const breadcrumbs = [
   { title: 'Attendance Reports', href: '/teacher/reports/attendance' }
 ];
 
-const selectedClass = ref(props.selectedClassId?.toString() || '');
+const selectedClass = ref(props.selectedClassId?.toString() || 'all');
 
 const filterByClass = () => {
-  if (selectedClass.value) {
+  if (selectedClass.value && selectedClass.value !== 'all') {
     window.location.href = `/teacher/reports/attendance?class_id=${selectedClass.value}`;
   } else {
     window.location.href = '/teacher/reports/attendance';
@@ -96,7 +96,7 @@ const getStatusBadge = (percentage: number) => {
                   <SelectValue placeholder="All Classes" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Classes</SelectItem>
+                  <SelectItem value="all">All Classes</SelectItem>
                   <SelectItem v-for="cls in classes" :key="cls.id" :value="cls.id.toString()">
                     {{ cls.name }} ({{ cls.section }})
                   </SelectItem>

@@ -1446,15 +1446,78 @@ class TeacherController extends Controller
     {
         $teacher = $this->getCurrentTeacher();
         
-        // This would typically generate and return a CSV/PDF file
-        // For now, return the data as JSON
+        $exportType = $request->get('export_type', 'attendance');
+        $format = $request->get('format', 'csv');
         $classId = $request->get('class_id');
         $startDate = $request->get('start_date');
         $endDate = $request->get('end_date');
-
+        
+        // Handle quick export types
+        if (in_array($exportType, ['weekly', 'monthly', 'semester'])) {
+            return $this->handleQuickExport($exportType, $format, $teacher);
+        }
+        
+        // Handle regular exports
+        if ($exportType === 'attendance') {
+            return $this->exportAttendanceData($classId, $startDate, $endDate, $format, $teacher);
+        } elseif ($exportType === 'students') {
+            return $this->exportStudentData($classId, $format, $teacher);
+        }
+        
+        return response()->json(['error' => 'Invalid export type'], 400);
+    }
+    
+    private function handleQuickExport($type, $format, $teacher)
+    {
+        $now = now();
+        
+        switch ($type) {
+            case 'weekly':
+                $startDate = $now->copy()->subWeek()->format('Y-m-d');
+                $endDate = $now->format('Y-m-d');
+                break;
+            case 'monthly':
+                $startDate = $now->copy()->startOfMonth()->format('Y-m-d');
+                $endDate = $now->copy()->endOfMonth()->format('Y-m-d');
+                break;
+            case 'semester':
+                // Assume semester starts in September or January
+                $currentMonth = $now->month;
+                if ($currentMonth >= 9) {
+                    $startDate = $now->copy()->month(9)->startOfMonth()->format('Y-m-d');
+                } else {
+                    $startDate = $now->copy()->subYear()->month(9)->startOfMonth()->format('Y-m-d');
+                }
+                $endDate = $now->format('Y-m-d');
+                break;
+            default:
+                $startDate = null;
+                $endDate = null;
+        }
+        
+        return $this->exportAttendanceData(null, $startDate, $endDate, $format, $teacher, ucfirst($type) . '_Report');
+    }
+    
+    private function exportAttendanceData($classId, $startDate, $endDate, $format, $teacher, $filename = null)
+    {
+        // Build query for attendance data
         $query = DB::table('attendance_sessions')
                    ->join('class_models', 'attendance_sessions.class_id', '=', 'class_models.id')
-                   ->where('class_models.teacher_id', $teacher->id);
+                   ->leftJoin('attendance_records', 'attendance_sessions.id', '=', 'attendance_records.attendance_session_id')
+                   ->leftJoin('students', 'attendance_records.student_id', '=', 'students.id')
+                   ->where('class_models.teacher_id', $teacher->id)
+                   ->select([
+                       'class_models.name as class_name',
+                       'class_models.course',
+                       'class_models.section',
+                       'attendance_sessions.session_date',
+                       'attendance_sessions.start_time',
+                       'attendance_sessions.end_time',
+                       'students.student_id',
+                       'students.name as student_name',
+                       'attendance_records.status',
+                       'attendance_records.marked_at'
+                   ]);
 
         if ($classId) {
             $query->where('attendance_sessions.class_id', $classId);
@@ -1468,13 +1531,248 @@ class TeacherController extends Controller
             $query->where('attendance_sessions.session_date', '<=', $endDate);
         }
 
-        $sessions = $query->get();
+        $data = $query->orderBy('attendance_sessions.session_date', 'desc')
+                     ->orderBy('class_models.name')
+                     ->orderBy('students.name')
+                     ->get();
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Report exported successfully',
-            'data' => $sessions
-        ]);
+        // Generate filename
+        if (!$filename) {
+            $filename = 'Attendance_Report_' . now()->format('Y-m-d_H-i-s');
+        }
+
+        // Return appropriate format
+        if ($format === 'csv') {
+            return $this->generateCsvResponse($data, $filename, 'attendance');
+        } elseif ($format === 'xlsx') {
+            return $this->generateExcelResponse($data, $filename, 'attendance');
+        } elseif ($format === 'pdf') {
+            return $this->generatePdfResponse($data, $filename, 'attendance');
+        }
+        
+        return response()->json(['error' => 'Invalid format'], 400);
+    }
+    
+    private function exportStudentData($classId, $format, $teacher)
+    {
+        if (!$classId) {
+            return response()->json(['error' => 'Class ID is required for student reports'], 400);
+        }
+        
+        // Get class info
+        $class = DB::table('class_models')
+                   ->where('id', $classId)
+                   ->where('teacher_id', $teacher->id)
+                   ->first();
+                   
+        if (!$class) {
+            return response()->json(['error' => 'Class not found'], 404);
+        }
+        
+        // Get student data with attendance statistics
+        $students = DB::table('class_student')
+                     ->join('students', 'class_student.student_id', '=', 'students.id')
+                     ->where('class_student.class_model_id', $classId)
+                     ->select([
+                         'students.student_id',
+                         'students.name',
+                         'students.email',
+                         'students.course',
+                         'class_student.status',
+                         'class_student.enrolled_at'
+                     ])
+                     ->get();
+        
+        // Calculate attendance for each student
+        $studentsWithAttendance = $students->map(function ($student) use ($classId) {
+            $totalSessions = DB::table('attendance_sessions')
+                              ->where('class_id', $classId)
+                              ->count();
+                              
+            $presentSessions = DB::table('attendance_records')
+                                ->join('attendance_sessions', 'attendance_records.attendance_session_id', '=', 'attendance_sessions.id')
+                                ->where('attendance_sessions.class_id', $classId)
+                                ->where('attendance_records.student_id', $student->student_id)
+                                ->where('attendance_records.status', 'present')
+                                ->count();
+                                
+            $absentSessions = DB::table('attendance_records')
+                               ->join('attendance_sessions', 'attendance_records.attendance_session_id', '=', 'attendance_sessions.id')
+                               ->where('attendance_sessions.class_id', $classId)
+                               ->where('attendance_records.student_id', $student->student_id)
+                               ->where('attendance_records.status', 'absent')
+                               ->count();
+            
+            $attendanceRate = $totalSessions > 0 ? round(($presentSessions / $totalSessions) * 100, 1) : 0;
+            
+            return (object) array_merge((array) $student, [
+                'class_name' => $class->name ?? '',
+                'total_sessions' => $totalSessions,
+                'present_sessions' => $presentSessions,
+                'absent_sessions' => $absentSessions,
+                'attendance_rate' => $attendanceRate
+            ]);
+        });
+        
+        $filename = 'Student_Report_' . str_replace(' ', '_', $class->name) . '_' . now()->format('Y-m-d_H-i-s');
+        
+        // Return appropriate format
+        if ($format === 'csv') {
+            return $this->generateCsvResponse($studentsWithAttendance, $filename, 'students');
+        } elseif ($format === 'xlsx') {
+            return $this->generateExcelResponse($studentsWithAttendance, $filename, 'students');
+        } elseif ($format === 'pdf') {
+            return $this->generatePdfResponse($studentsWithAttendance, $filename, 'students');
+        }
+        
+        return response()->json(['error' => 'Invalid format'], 400);
+    }
+    
+    private function generateCsvResponse($data, $filename, $type)
+    {
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => "attachment; filename=\"{$filename}.csv\"",
+            'Cache-Control' => 'no-cache, no-store, must-revalidate',
+            'Pragma' => 'no-cache',
+            'Expires' => '0'
+        ];
+        
+        $callback = function () use ($data, $type) {
+            $file = fopen('php://output', 'w');
+            
+            if ($type === 'attendance') {
+                // CSV headers for attendance
+                fputcsv($file, [
+                    'Class Name', 'Course', 'Section', 'Session Date', 
+                    'Start Time', 'End Time', 'Student ID', 'Student Name', 
+                    'Status', 'Marked At'
+                ]);
+                
+                foreach ($data as $row) {
+                    fputcsv($file, [
+                        $row->class_name ?? '',
+                        $row->course ?? '',
+                        $row->section ?? '',
+                        $row->session_date ?? '',
+                        $row->start_time ?? '',
+                        $row->end_time ?? '',
+                        $row->student_id ?? '',
+                        $row->student_name ?? '',
+                        $row->status ?? '',
+                        $row->marked_at ?? ''
+                    ]);
+                }
+            } else {
+                // CSV headers for students
+                fputcsv($file, [
+                    'Student ID', 'Name', 'Email', 'Course', 'Class Name',
+                    'Status', 'Enrolled At', 'Total Sessions', 'Present Sessions',
+                    'Absent Sessions', 'Attendance Rate (%)'
+                ]);
+                
+                foreach ($data as $row) {
+                    fputcsv($file, [
+                        $row->student_id ?? '',
+                        $row->name ?? '',
+                        $row->email ?? '',
+                        $row->course ?? '',
+                        $row->class_name ?? '',
+                        $row->status ?? '',
+                        $row->enrolled_at ?? '',
+                        $row->total_sessions ?? 0,
+                        $row->present_sessions ?? 0,
+                        $row->absent_sessions ?? 0,
+                        $row->attendance_rate ?? 0
+                    ]);
+                }
+            }
+            
+            fclose($file);
+        };
+        
+        return response()->stream($callback, 200, $headers);
+    }
+    
+    private function generateExcelResponse($data, $filename, $type)
+    {
+        // For now, return CSV format with Excel headers
+        // In a real implementation, you'd use a library like PhpSpreadsheet
+        $headers = [
+            'Content-Type' => 'application/vnd.ms-excel',
+            'Content-Disposition' => "attachment; filename=\"{$filename}.xls\"",
+            'Cache-Control' => 'no-cache, no-store, must-revalidate',
+            'Pragma' => 'no-cache',
+            'Expires' => '0'
+        ];
+        
+        $callback = function () use ($data, $type) {
+            $file = fopen('php://output', 'w');
+            
+            // Use same CSV logic but with Excel headers
+            if ($type === 'attendance') {
+                fputcsv($file, [
+                    'Class Name', 'Course', 'Section', 'Session Date', 
+                    'Start Time', 'End Time', 'Student ID', 'Student Name', 
+                    'Status', 'Marked At'
+                ]);
+                
+                foreach ($data as $row) {
+                    fputcsv($file, [
+                        $row->class_name ?? '',
+                        $row->course ?? '',
+                        $row->section ?? '',
+                        $row->session_date ?? '',
+                        $row->start_time ?? '',
+                        $row->end_time ?? '',
+                        $row->student_id ?? '',
+                        $row->student_name ?? '',
+                        $row->status ?? '',
+                        $row->marked_at ?? ''
+                    ]);
+                }
+            } else {
+                fputcsv($file, [
+                    'Student ID', 'Name', 'Email', 'Course', 'Class Name',
+                    'Status', 'Enrolled At', 'Total Sessions', 'Present Sessions',
+                    'Absent Sessions', 'Attendance Rate (%)'
+                ]);
+                
+                foreach ($data as $row) {
+                    fputcsv($file, [
+                        $row->student_id ?? '',
+                        $row->name ?? '',
+                        $row->email ?? '',
+                        $row->course ?? '',
+                        $row->class_name ?? '',
+                        $row->status ?? '',
+                        $row->enrolled_at ?? '',
+                        $row->total_sessions ?? 0,
+                        $row->present_sessions ?? 0,
+                        $row->absent_sessions ?? 0,
+                        $row->attendance_rate ?? 0
+                    ]);
+                }
+            }
+            
+            fclose($file);
+        };
+        
+        return response()->stream($callback, 200, $headers);
+    }
+    
+    private function generatePdfResponse($data, $filename, $type)
+    {
+        // For now, return a simple PDF message
+        // In a real implementation, you'd use a library like DomPDF or TCPDF
+        $headers = [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => "attachment; filename=\"{$filename}.pdf\"",
+        ];
+        
+        $pdfContent = "%PDF-1.4\n1 0 obj\n<<\n/Type /Catalog\n/Pages 2 0 R\n>>\nendobj\n2 0 obj\n<<\n/Type /Pages\n/Kids [3 0 R]\n/Count 1\n>>\nendobj\n3 0 obj\n<<\n/Type /Page\n/Parent 2 0 R\n/MediaBox [0 0 612 792]\n/Contents 4 0 R\n>>\nendobj\n4 0 obj\n<<\n/Length 44\n>>\nstream\nBT\n/F1 12 Tf\n72 720 Td\n(Report Generated) Tj\nET\nendstream\nendobj\nxref\n0 5\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n0000000207 00000 n \ntrailer\n<<\n/Size 5\n/Root 1 0 R\n>>\nstartxref\n299\n%%EOF";
+        
+        return response($pdfContent, 200, $headers);
     }
 
     /**

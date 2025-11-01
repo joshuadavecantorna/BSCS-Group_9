@@ -35,24 +35,167 @@ const breadcrumbs = [
   { title: 'Export Reports', href: '/teacher/reports/export' }
 ];
 
-// Export form
-const exportForm = useForm({
-  class_id: '',
+// Export forms
+const attendanceForm = useForm({
+  class_id: 'all',
   start_date: '',
   end_date: '',
-  format: 'csv'
+  format: 'csv',
+  export_type: 'attendance'
 });
 
-const exportReport = (type: string) => {
-  exportForm.post(`/teacher/reports/export-data`, {
-    onSuccess: (response) => {
-      // Handle successful export
-      alert('Report exported successfully!');
-    },
-    onError: (errors) => {
-      console.error('Export failed:', errors);
+const studentForm = useForm({
+  class_id: '',
+  format: 'csv',
+  export_type: 'students'
+});
+
+// Loading states
+const isExporting = ref(false);
+
+const exportAttendanceData = () => {
+  if (isExporting.value) return;
+  
+  isExporting.value = true;
+  
+  // Use regular form submission for file downloads instead of Inertia
+  const form = document.createElement('form');
+  form.method = 'POST';
+  form.action = '/teacher/reports/export-data';
+  form.style.display = 'none';
+  
+  // Add CSRF token
+  const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+  if (csrfToken) {
+    const csrfInput = document.createElement('input');
+    csrfInput.type = 'hidden';
+    csrfInput.name = '_token';
+    csrfInput.value = csrfToken;
+    form.appendChild(csrfInput);
+  }
+  
+  // Add form data
+  const formData = {
+    export_type: attendanceForm.export_type,
+    format: attendanceForm.format,
+    class_id: attendanceForm.class_id === 'all' ? '' : attendanceForm.class_id,
+    start_date: attendanceForm.start_date,
+    end_date: attendanceForm.end_date
+  };
+  
+  Object.entries(formData).forEach(([key, value]) => {
+    if (value) {
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = key;
+      input.value = value.toString();
+      form.appendChild(input);
     }
   });
+  
+  document.body.appendChild(form);
+  form.submit();
+  document.body.removeChild(form);
+  
+  isExporting.value = false;
+};
+
+const exportStudentData = () => {
+  if (isExporting.value) return;
+  
+  if (!studentForm.class_id) {
+    alert('Please select a class first.');
+    return;
+  }
+  
+  isExporting.value = true;
+  
+  // Use regular form submission for file downloads instead of Inertia
+  const form = document.createElement('form');
+  form.method = 'POST';
+  form.action = '/teacher/reports/export-data';
+  form.style.display = 'none';
+  
+  // Add CSRF token
+  const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+  if (csrfToken) {
+    const csrfInput = document.createElement('input');
+    csrfInput.type = 'hidden';
+    csrfInput.name = '_token';
+    csrfInput.value = csrfToken;
+    form.appendChild(csrfInput);
+  }
+  
+  // Add form data
+  const formData = {
+    export_type: studentForm.export_type,
+    format: studentForm.format,
+    class_id: studentForm.class_id
+  };
+  
+  Object.entries(formData).forEach(([key, value]) => {
+    if (value) {
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = key;
+      input.value = value.toString();
+      form.appendChild(input);
+    }
+  });
+  
+  document.body.appendChild(form);
+  form.submit();
+  document.body.removeChild(form);
+  
+  isExporting.value = false;
+};
+
+const exportQuickReport = (type: 'weekly' | 'monthly' | 'semester') => {
+  if (isExporting.value) return;
+  
+  isExporting.value = true;
+  
+  // Use regular form submission for file downloads instead of Inertia
+  const form = document.createElement('form');
+  form.method = 'POST';
+  form.action = '/teacher/reports/export-data';
+  form.style.display = 'none';
+  
+  // Add CSRF token
+  const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+  if (csrfToken) {
+    const csrfInput = document.createElement('input');
+    csrfInput.type = 'hidden';
+    csrfInput.name = '_token';
+    csrfInput.value = csrfToken;
+    form.appendChild(csrfInput);
+  }
+  
+  // Add form data
+  const formData = {
+    export_type: type,
+    format: 'csv',
+    class_id: ''
+  };
+  
+  Object.entries(formData).forEach(([key, value]) => {
+    if (value) {
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = key;
+      input.value = value.toString();
+      form.appendChild(input);
+    }
+  });
+  
+  document.body.appendChild(form);
+  form.submit();
+  document.body.removeChild(form);
+  
+  // Set timeout to reset loading state
+  setTimeout(() => {
+    isExporting.value = false;
+  }, 2000);
 };
 </script>
 
@@ -87,12 +230,12 @@ const exportReport = (type: string) => {
           <CardContent class="space-y-4">
             <div>
               <Label for="class-select">Class (Optional)</Label>
-              <Select v-model="exportForm.class_id">
+              <Select v-model="attendanceForm.class_id">
                 <SelectTrigger>
                   <SelectValue placeholder="All Classes" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Classes</SelectItem>
+                  <SelectItem value="all">All Classes</SelectItem>
                   <SelectItem v-for="cls in classes" :key="cls.id" :value="cls.id.toString()">
                     {{ cls.name }} ({{ cls.section }})
                   </SelectItem>
@@ -105,7 +248,7 @@ const exportReport = (type: string) => {
               <Input 
                 id="start-date"
                 type="date" 
-                v-model="exportForm.start_date" 
+                v-model="attendanceForm.start_date" 
               />
             </div>
 
@@ -114,13 +257,13 @@ const exportReport = (type: string) => {
               <Input 
                 id="end-date"
                 type="date" 
-                v-model="exportForm.end_date" 
+                v-model="attendanceForm.end_date" 
               />
             </div>
 
             <div>
               <Label for="format-select">Format</Label>
-              <Select v-model="exportForm.format">
+              <Select v-model="attendanceForm.format">
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -132,9 +275,13 @@ const exportReport = (type: string) => {
               </Select>
             </div>
 
-            <Button @click="exportReport('attendance')" class="w-full">
+            <Button 
+              @click="exportAttendanceData" 
+              class="w-full"
+              :disabled="isExporting"
+            >
               <Download class="h-4 w-4 mr-2" />
-              Export Attendance Data
+              {{ isExporting ? 'Exporting...' : 'Export Attendance Data' }}
             </Button>
           </CardContent>
         </Card>
@@ -153,7 +300,7 @@ const exportReport = (type: string) => {
           <CardContent class="space-y-4">
             <div>
               <Label for="student-class-select">Class</Label>
-              <Select v-model="exportForm.class_id">
+              <Select v-model="studentForm.class_id">
                 <SelectTrigger>
                   <SelectValue placeholder="Select a class" />
                 </SelectTrigger>
@@ -167,7 +314,7 @@ const exportReport = (type: string) => {
 
             <div>
               <Label for="student-format-select">Format</Label>
-              <Select v-model="exportForm.format">
+              <Select v-model="studentForm.format">
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -179,9 +326,14 @@ const exportReport = (type: string) => {
               </Select>
             </div>
 
-            <Button @click="exportReport('students')" class="w-full" variant="outline">
+            <Button 
+              @click="exportStudentData" 
+              class="w-full" 
+              variant="outline"
+              :disabled="isExporting"
+            >
               <Download class="h-4 w-4 mr-2" />
-              Export Student Data
+              {{ isExporting ? 'Exporting...' : 'Export Student Data' }}
             </Button>
           </CardContent>
         </Card>
@@ -198,7 +350,12 @@ const exportReport = (type: string) => {
         </CardHeader>
         <CardContent>
           <div class="grid gap-4 md:grid-cols-3">
-            <Button @click="exportReport('weekly')" variant="outline" class="h-auto p-4">
+            <Button 
+              @click="exportQuickReport('weekly')" 
+              variant="outline" 
+              class="h-auto p-4"
+              :disabled="isExporting"
+            >
               <div class="text-center">
                 <Calendar class="h-8 w-8 mx-auto mb-2" />
                 <div class="font-medium">Weekly Report</div>
@@ -206,7 +363,12 @@ const exportReport = (type: string) => {
               </div>
             </Button>
 
-            <Button @click="exportReport('monthly')" variant="outline" class="h-auto p-4">
+            <Button 
+              @click="exportQuickReport('monthly')" 
+              variant="outline" 
+              class="h-auto p-4"
+              :disabled="isExporting"
+            >
               <div class="text-center">
                 <Calendar class="h-8 w-8 mx-auto mb-2" />
                 <div class="font-medium">Monthly Report</div>
@@ -214,7 +376,12 @@ const exportReport = (type: string) => {
               </div>
             </Button>
 
-            <Button @click="exportReport('semester')" variant="outline" class="h-auto p-4">
+            <Button 
+              @click="exportQuickReport('semester')" 
+              variant="outline" 
+              class="h-auto p-4"
+              :disabled="isExporting"
+            >
               <div class="text-center">
                 <FileText class="h-8 w-8 mx-auto mb-2" />
                 <div class="font-medium">Semester Report</div>

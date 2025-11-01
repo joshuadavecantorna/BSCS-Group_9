@@ -29,9 +29,9 @@ const breadcrumbs: BreadcrumbItem[] = [
 
 // Filter states
 const filters = ref({
-  class: props.selected_class_id?.toString() || '',
+  class: props.selected_class_id?.toString() || 'all',
   search: '',
-  status: '',
+  status: 'all',
   startDate: ''
 });
 
@@ -45,7 +45,7 @@ const filteredRecords = computed(() => {
   const search = (filters.value.search || '').toLowerCase();
   const classId = filters.value.class;
   return attendanceRecords.value.filter((r: any) => {
-    const matchesClass = !classId || String(r.class_id) === String(classId);
+    const matchesClass = !classId || classId === 'all' || String(r.class_id) === String(classId);
     const matchesSearch = !search || (r.class_name?.toLowerCase().includes(search));
     return matchesClass && matchesSearch;
   });
@@ -54,7 +54,7 @@ const filteredRecords = computed(() => {
 // Filter function
 const applyFilters = () => {
   router.get('/student/attendance-history', {
-    class_id: filters.value.class
+    class_id: filters.value.class === 'all' ? '' : filters.value.class
   }, {
     preserveState: true,
     preserveScroll: true
@@ -194,7 +194,7 @@ const clearFilters = () => {
                   <SelectValue placeholder="All classes" class="text-foreground" />
                 </SelectTrigger>
                 <SelectContent class="bg-background border-input dark:bg-background dark:border-input">
-                  <SelectItem value="" class="hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground">All classes</SelectItem>
+                  <SelectItem value="all" class="hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground">All classes</SelectItem>
                   <SelectItem v-for="cls in classes" :key="cls.value" :value="cls.value" class="hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground">
                     {{ cls.label }}
                   </SelectItem>
@@ -210,7 +210,7 @@ const clearFilters = () => {
                   <SelectValue placeholder="All statuses" class="text-foreground" />
                 </SelectTrigger>
                 <SelectContent class="bg-background border-input dark:bg-background dark:border-input">
-                  <SelectItem value="" class="hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground">All statuses</SelectItem>
+                  <SelectItem value="all" class="hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground">All statuses</SelectItem>
                   <SelectItem value="present" class="hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground">Present</SelectItem>
                   <SelectItem value="absent" class="hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground">Absent</SelectItem>
                   <SelectItem value="excused" class="hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground">Excused</SelectItem>
