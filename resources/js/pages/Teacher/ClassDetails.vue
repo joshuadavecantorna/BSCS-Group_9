@@ -156,7 +156,7 @@ const startAttendance = () => {
           <CardContent>
             <div class="text-lg font-bold">{{ classData.schedule_time }}</div>
             <p class="text-xs text-muted-foreground">
-              {{ classData.schedule_days ? classData.schedule_days.join(', ') : 'No schedule set' }}
+              {{ Array.isArray(classData.schedule_days) && classData.schedule_days.length > 0 ? classData.schedule_days.join(', ') : 'No schedule set' }}
             </p>
           </CardContent>
         </Card>

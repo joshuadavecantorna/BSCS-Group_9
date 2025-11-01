@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Inertia\Inertia;
 use Carbon\Carbon;
 
@@ -41,23 +42,35 @@ class TeacherController extends Controller
     {
         $teacher = $this->getCurrentTeacher();
         
-        // Get classes directly from database with simple query
+        // Get classes directly from database with real-time student count
         $classes = DB::table('class_models')
-                     ->where('teacher_id', $teacher->id)
+                     ->where('teacher_id', $teacher->user_id)
                      ->get()
                      ->map(function ($class) {
+                         // Get real student count for each class
+                         $studentCount = DB::table('class_student')
+                                          ->where('class_model_id', $class->id)
+                                          ->count();
+                         
                          return [
                              'id' => $class->id,
                              'name' => $class->name,
+                             'class_code' => $class->class_code,
                              'course' => $class->course,
                              'section' => $class->section,
+                             'subject' => $class->subject,
                              'year' => $class->year,
+                             'description' => $class->description,
+                             'room' => $class->room ?? null,
                              'schedule_time' => $class->schedule_time,
-                             'schedule_days' => $class->schedule_days ?? [],
-                             'student_count' => 25, // Mock data for now
+                             'schedule_days' => $this->parseScheduleDays($class->schedule_days),
+                             'student_count' => $studentCount,
                              'is_active' => $class->is_active
                          ];
                      });
+
+        // Debug: Log what we're sending to frontend
+        Log::info('Classes data being sent to frontend:', $classes->toArray());
 
         return Inertia::render('Teacher/Classes', [
             'teacher' => $teacher,
@@ -73,19 +86,21 @@ class TeacherController extends Controller
         try {
             $request->validate([
                 'name' => 'required|string|max:255',
+                'class_code' => 'nullable|string|max:50',
                 'course' => 'required|string|max:255',
                 'section' => 'required|string|max:10',
                 'subject' => 'nullable|string|max:255',
                 'year' => 'required|string|max:50',
                 'description' => 'nullable|string',
-                'schedule_time' => 'nullable|date_format:H:i',
+                'room' => 'nullable|string|max:255',
+                'schedule_time' => 'nullable|string|max:255',
                 'schedule_days' => 'nullable|array',
             ]);
 
             $teacher = $this->getCurrentTeacher();
 
-            // Generate unique class code
-            $classCode = $this->generateUniqueClassCode($request->course, $request->section, $request->year);
+            // Use provided class code or generate one
+            $classCode = $request->input('class_code') ? trim($request->input('class_code')) : $this->generateUniqueClassCode($request->course, $request->section, $request->year);
             
             // Clean and prepare the data
             $name = trim($request->input('name'));
@@ -97,12 +112,12 @@ class TeacherController extends Controller
             $scheduleTime = $request->input('schedule_time');
             $scheduleDays = $request->input('schedule_days', []);
 
-            // Create the class using raw SQL to handle boolean properly
-            $classId = DB::select("
-                INSERT INTO class_models (name, course, class_code, section, subject, year, description, teacher_id, schedule_time, schedule_days, is_active, created_at, updated_at) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, true, now(), now()) 
-                RETURNING id
-            ", [
+            // Build insert dynamically so we only include optional columns when present in the DB
+            $insertCols = [
+                'name', 'course', 'class_code', 'section', 'subject', 'year', 'description', 'teacher_id', 'schedule_time', 'schedule_days'
+            ];
+
+            $values = [
                 $name,
                 $course,
                 $classCode,
@@ -110,11 +125,24 @@ class TeacherController extends Controller
                 $subject,
                 $year,
                 $description,
-                $teacher->id,
+                $teacher->user_id,
                 $scheduleTime,
-                json_encode($scheduleDays)
-            ])[0]->id;
-            
+                json_encode($scheduleDays),
+            ];
+
+            // include room/academic fields only if migration has been run
+            if (Schema::hasColumn('class_models', 'room')) {
+                $insertCols[] = 'room';
+                $values[] = $request->input('room');
+            }
+
+            // finalize columns and placeholders (is_active and timestamps are literals)
+            $colsSql = implode(', ', $insertCols) . ', is_active, created_at, updated_at';
+            $placeholders = implode(', ', array_fill(0, count($insertCols), '?')) . ', true, now(), now()';
+
+            $sql = "INSERT INTO class_models ($colsSql) VALUES ($placeholders) RETURNING id";
+
+            $classId = DB::select($sql, $values)[0]->id;
             $class = ClassModel::find($classId);
 
             return redirect()->route('teacher.classes')->with('success', 'Class created successfully!');
@@ -134,7 +162,7 @@ class TeacherController extends Controller
     {
         $teacher = $this->getCurrentTeacher();
         
-        $class = ClassModel::forTeacher($teacher->id)->findOrFail($id);
+        $class = ClassModel::forTeacher($teacher->user_id)->findOrFail($id);
         
         // Get students for this class
         $students = DB::table('class_student')
@@ -182,38 +210,65 @@ class TeacherController extends Controller
     public function updateClass(Request $request, $id)
     {
         try {
+
             $request->validate([
                 'name' => 'required|string|max:255',
+                'class_code' => 'nullable|string|max:50',
                 'course' => 'required|string|max:100',
                 'section' => 'required|string|max:10',
                 'subject' => 'nullable|string|max:255',
                 'year' => 'required|string|max:20',
                 'description' => 'nullable|string',
-                'schedule_time' => 'nullable|date_format:H:i',
+                'room' => 'nullable|string|max:255',
+                'schedule_time' => 'nullable|string|max:255',
                 'schedule_days' => 'nullable|array'
             ]);
 
             $teacher = $this->getCurrentTeacher();
-            $class = ClassModel::where('teacher_id', $teacher->id)->findOrFail($id);
+            $class = ClassModel::where('teacher_id', $teacher->user_id)->findOrFail($id);
 
-            $class->update([
+            // Build update data dynamically
+            $updateData = [
                 'name' => trim($request->name),
+                'class_code' => $request->class_code ? trim($request->class_code) : null,
                 'course' => trim($request->course),
                 'section' => trim($request->section),
                 'subject' => $request->subject ? trim($request->subject) : null,
                 'year' => trim($request->year),
-'description' => $request->description ? trim($request->description) : null,
+                'description' => $request->description ? trim($request->description) : null,
                 'schedule_time' => $request->schedule_time,
-                'schedule_days' => $request->schedule_days ?? [],
-                'is_active' => DB::raw('true')
+                'schedule_days' => json_encode($request->schedule_days ?? [])
+            ];
+
+            // Only include room if the column exists in the database
+            if (Schema::hasColumn('class_models', 'room')) {
+                $updateData['room'] = $request->room ? trim($request->room) : null;
+                Log::info('Room column exists, adding room to updateData:', ['room_value' => $updateData['room']]);
+            } else {
+                Log::warning('Room column does not exist in database');
+            }
+
+            Log::info('Final updateData:', $updateData);
+
+            $class->update($updateData);
+
+            // Debug: Check what was actually saved
+            $fresh = $class->fresh();
+            Log::info('Class after update:', [
+                'id' => $fresh->id,
+                'room' => $fresh->room,
+                'schedule_time' => $fresh->schedule_time,
+                'schedule_days' => $fresh->schedule_days
             ]);
 
             return redirect()->route('teacher.classes')->with('success', 'Class updated successfully!');
 
         } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::error('Validation failed: ', $e->errors());
             return back()->withErrors($e->errors())->withInput();
         } catch (\Exception $e) {
             Log::error('Failed to update class: ' . $e->getMessage());
+            Log::error('Request data: ', $request->all());
             return back()->withErrors(['error' => 'Failed to update class. Please try again.'])->withInput();
         }
     }
@@ -225,7 +280,7 @@ class TeacherController extends Controller
     {
         try {
             $teacher = $this->getCurrentTeacher();
-            $class = ClassModel::where('teacher_id', $teacher->id)->findOrFail($id);
+            $class = ClassModel::where('teacher_id', $teacher->user_id)->findOrFail($id);
 
             $class->update(['is_active' => false]);
 
@@ -243,7 +298,7 @@ class TeacherController extends Controller
     public function getClassStudents($classId)
     {
         $teacher = $this->getCurrentTeacher();
-        $class = ClassModel::forTeacher($teacher->id)->findOrFail($classId);
+        $class = ClassModel::forTeacher($teacher->user_id)->findOrFail($classId);
 
                     $classStudents = DB::table('class_student')
                               ->join('students', 'class_student.student_id', '=', 'students.id')
@@ -305,7 +360,7 @@ class TeacherController extends Controller
         ]);
 
         $teacher = $this->getCurrentTeacher();
-        $class = ClassModel::forTeacher($teacher->id)->findOrFail($classId);
+        $class = ClassModel::forTeacher($teacher->user_id)->findOrFail($classId);
 
         $addedStudents = [];
         $skippedCount = 0;
@@ -392,7 +447,7 @@ class TeacherController extends Controller
         }
 
         $teacher = $this->getCurrentTeacher();
-        $class = ClassModel::forTeacher($teacher->id)->findOrFail($classId);
+        $class = ClassModel::forTeacher($teacher->user_id)->findOrFail($classId);
 
         $addedStudents = [];
 
@@ -451,7 +506,7 @@ class TeacherController extends Controller
     public function removeStudentFromClass($classId, $studentId)
     {
         $teacher = $this->getCurrentTeacher();
-        $class = ClassModel::forTeacher($teacher->id)->findOrFail($classId);
+        $class = ClassModel::forTeacher($teacher->user_id)->findOrFail($classId);
 
                 $removed = DB::table('class_student')
                     ->where('class_model_id', $classId)
@@ -485,7 +540,7 @@ class TeacherController extends Controller
         ]);
 
         $teacher = $this->getCurrentTeacher();
-        $class = ClassModel::forTeacher($teacher->id)->findOrFail($request->class_id);
+        $class = ClassModel::forTeacher($teacher->user_id)->findOrFail($request->class_id);
         $totalStudents = DB::table('class_student')->where('class_model_id', $request->class_id)->count();
 
         // Generate unique QR code for this session
@@ -518,7 +573,7 @@ class TeacherController extends Controller
         ]);
 
         $teacher = $this->getCurrentTeacher();
-        $class = ClassModel::forTeacher($teacher->id)->findOrFail($request->class_id);
+        $class = ClassModel::forTeacher($teacher->user_id)->findOrFail($request->class_id);
         $totalStudents = DB::table('class_student')->where('class_model_id', $request->class_id)->count();
 
         // Generate unique QR code for this session
@@ -554,7 +609,7 @@ class TeacherController extends Controller
         $session = DB::table('attendance_sessions')
                     ->join('class_models', 'attendance_sessions.class_id', '=', 'class_models.id')
                     ->where('attendance_sessions.id', $sessionId)
-                    ->where('class_models.teacher_id', $teacher->id)
+                    ->where('class_models.teacher_id', $teacher->user_id)
                     ->select(
                         'attendance_sessions.*',
                         'class_models.name as class_name',
@@ -1006,7 +1061,7 @@ class TeacherController extends Controller
         // Get class_id from request body
         $classId = $request->input('class_id');
 
-        $class = ClassModel::forTeacher($teacher->id)->findOrFail($classId);
+        $class = ClassModel::forTeacher($teacher->user_id)->findOrFail($classId);
 
         $uploadedFiles = [];
         
@@ -1312,7 +1367,7 @@ class TeacherController extends Controller
     public function files()
     {
         $teacher = $this->getCurrentTeacher();
-        $classes = ClassModel::forTeacher($teacher->id)
+        $classes = ClassModel::forTeacher($teacher->user_id)
             ->select('id', 'name', 'course', 'section')
             ->get();
 
@@ -1980,7 +2035,7 @@ class TeacherController extends Controller
     public function showDirectAttendance($classId)
     {
         $teacher = $this->getCurrentTeacher();
-        $class = ClassModel::forTeacher($teacher->id)->findOrFail($classId);
+        $class = ClassModel::forTeacher($teacher->user_id)->findOrFail($classId);
 
         // Get all students in the class
         $students = DB::table('class_student')
@@ -2136,5 +2191,35 @@ class TeacherController extends Controller
         }
 
         return $classCode;
+    }
+
+    /**
+     * Parse schedule_days field to ensure it's always an array
+     */
+    private function parseScheduleDays($scheduleDays)
+    {
+        if (empty($scheduleDays)) {
+            return [];
+        }
+        
+        // If it's already an array, return it
+        if (is_array($scheduleDays)) {
+            return $scheduleDays;
+        }
+        
+        // If it's a JSON string, decode it
+        if (is_string($scheduleDays)) {
+            $decoded = json_decode($scheduleDays, true);
+            
+            // Handle double-encoded JSON (when it's a string containing JSON)
+            if (is_string($decoded)) {
+                $doubleDecoded = json_decode($decoded, true);
+                return is_array($doubleDecoded) ? $doubleDecoded : [];
+            }
+            
+            return is_array($decoded) ? $decoded : [];
+        }
+        
+        return [];
     }
 }

@@ -126,9 +126,10 @@ class RegisteredUserController extends Controller
 
         Teacher::create([
             'user_id' => $user->id,
-            'employee_id' => $teacherId,
+            'teacher_id' => $teacherId,
             'first_name' => $firstName,
             'last_name' => $lastName,
+            'middle_name' => $middleName,
             'email' => $user->email,
             'phone' => null,
             'department' => 'Computer Science',
@@ -162,9 +163,9 @@ class RegisteredUserController extends Controller
      */
     private function generateTeacherId(): string
     {
-        $lastTeacher = Teacher::orderBy('employee_id', 'desc')->first();
+        $lastTeacher = Teacher::orderBy('teacher_id', 'desc')->first();
 
-        if ($lastTeacher && preg_match('/TEACH-(\d+)/', $lastTeacher->employee_id, $matches)) {
+        if ($lastTeacher && preg_match('/TEACH-(\d+)/', $lastTeacher->teacher_id, $matches)) {
             $lastNumber = (int) $matches[1];
             $newNumber = $lastNumber + 1;
         } else {

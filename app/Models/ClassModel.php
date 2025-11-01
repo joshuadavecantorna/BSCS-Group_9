@@ -23,7 +23,10 @@ class ClassModel extends Model
         'schedule',
         'schedule_time',
         'schedule_days',
-        'is_active'
+        'is_active',
+        'room',
+        'academic_year',
+        'semester'
     ];
 
     protected $casts = [

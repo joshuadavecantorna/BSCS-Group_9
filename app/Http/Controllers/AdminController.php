@@ -78,7 +78,7 @@ class AdminController extends Controller
             ->map(function ($teacher) {
                 return [
                     'id' => $teacher->id,
-                    'employee_id' => $teacher->employee_id,
+                    'employee_id' => $teacher->teacher_id,
                     'name' => $teacher->first_name . ' ' . $teacher->last_name,
                     'email' => $teacher->email,
                     'phone' => $teacher->phone,
@@ -105,7 +105,7 @@ class AdminController extends Controller
             'last_name' => 'required|string|max:255',
             'email' => 'required|email|unique:users,email',
             'phone' => 'nullable|string|max:20',
-            'employee_id' => 'required|string|unique:teachers,employee_id',
+            'employee_id' => 'required|string|unique:teachers,teacher_id',
             'department' => 'required|string|max:255',
             'position' => 'required|string|max:255',
             'password' => 'required|string|min:8|confirmed',
@@ -125,7 +125,7 @@ class AdminController extends Controller
             // Create teacher profile
             Teacher::create([
                 'user_id' => $user->id,
-                'employee_id' => $validated['employee_id'],
+                'teacher_id' => $validated['employee_id'],
                 'first_name' => $validated['first_name'],
                 'last_name' => $validated['last_name'],
                 'email' => $validated['email'],
@@ -155,7 +155,7 @@ class AdminController extends Controller
             'last_name' => 'required|string|max:255',
             'email' => 'required|email|unique:users,email,' . $teacher->user_id,
             'phone' => 'nullable|string|max:20',
-            'employee_id' => 'required|string|unique:teachers,employee_id,' . $id,
+            'employee_id' => 'required|string|unique:teachers,teacher_id,' . $id,
             'department' => 'required|string|max:255',
             'position' => 'required|string|max:255',
         ]);
@@ -170,7 +170,7 @@ class AdminController extends Controller
 
             // Update teacher profile
             $teacher->update([
-                'employee_id' => $validated['employee_id'],
+                'teacher_id' => $validated['employee_id'],
                 'first_name' => $validated['first_name'],
                 'last_name' => $validated['last_name'],
                 'email' => $validated['email'],

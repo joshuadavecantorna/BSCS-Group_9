@@ -118,7 +118,10 @@ class StudentController extends Controller
 
         // Get recent excuse requests
         $recentRequests = ExcuseRequest::where('student_id', $student->id)
-            ->with(['class:id,name,code'])
+            ->with(['attendanceSession' => function($query) {
+                $query->select('id', 'start_time', 'end_time', 'class_id')
+                      ->with('class:id,name,class_code');
+            }])
             ->orderBy('created_at', 'desc')
             ->limit(5)
             ->get();

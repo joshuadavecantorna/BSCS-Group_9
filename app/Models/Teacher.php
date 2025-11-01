@@ -13,14 +13,16 @@ class Teacher extends Model
 
     protected $fillable = [
         'user_id',
-        'employee_id',
+        'teacher_id',
         'first_name',
         'last_name',
+        'middle_name',
         'email',
         'phone',
         'department',
         'position',
-        'avatar',
+        'salary',
+        'profile_picture',
         'is_active'
     ];
 

@@ -49,4 +49,19 @@ class ExcuseRequest extends Model
     {
         return $this->belongsTo(Teacher::class, 'reviewed_by');
     }
+
+    /**
+     * Get the class through the attendance session
+     */
+    public function class()
+    {
+        return $this->hasOneThrough(
+            ClassModel::class,
+            AttendanceSession::class,
+            'id', // Foreign key on attendance_sessions table
+            'id', // Foreign key on class_models table
+            'attendance_session_id', // Local key on excuse_requests table
+            'class_id' // Local key on attendance_sessions table
+        );
+    }
 }

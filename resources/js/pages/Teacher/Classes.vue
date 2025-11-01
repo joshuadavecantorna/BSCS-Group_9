@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import AppLayout from '@/layouts/AppLayout.vue';
 import { Head } from '@inertiajs/vue3';
+import { router } from '@inertiajs/vue3';
 import { ref } from 'vue';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -17,9 +18,13 @@ import { Plus, Edit, Users, Clock, Calendar } from 'lucide-vue-next';
 interface ClassItem {
   id: number;
   name: string;
+  class_code?: string;
   course: string;
   section: string;
+  subject?: string;
   year: string;
+  description?: string;
+  room?: string;
   schedule_time: string;
   schedule_days: string[];
   student_count?: number;
@@ -90,12 +95,16 @@ const openCreateDialog = () => {
 
 const openEditDialog = (classItem: ClassItem) => {
   editingClass.value = classItem;
-  editForm.name = classItem.name;
-  editForm.course = classItem.course;
-  editForm.section = classItem.section;
-  editForm.year = classItem.year;
-  editForm.schedule_time = classItem.schedule_time;
-  editForm.schedule_days = classItem.schedule_days || [];
+  editForm.name = classItem.name || '';
+  editForm.class_code = classItem.class_code || '';
+  editForm.course = classItem.course || '';
+  editForm.section = classItem.section || '';
+  editForm.subject = classItem.subject || '';
+  editForm.year = classItem.year || '';
+  editForm.description = classItem.description || '';
+  editForm.room = classItem.room || '';
+  editForm.schedule_time = classItem.schedule_time || '';
+  editForm.schedule_days = Array.isArray(classItem.schedule_days) ? classItem.schedule_days : [];
   showEditDialog.value = true;
 };
 
@@ -104,6 +113,8 @@ const createClass = () => {
     onSuccess: () => {
       showCreateDialog.value = false;
       createForm.reset();
+      // Refresh the page data to show the new class
+      router.reload();
     },
   });
 };
@@ -111,11 +122,25 @@ const createClass = () => {
 const updateClass = () => {
   if (!editingClass.value) return;
   
+  // Debug: Log what we're sending
+  console.log('Sending form data:', {
+    room: editForm.room,
+    schedule_time: editForm.schedule_time,
+    schedule_days: editForm.schedule_days,
+    name: editForm.name
+  });
+  
   editForm.put(`/teacher/classes/${editingClass.value.id}`, {
     onSuccess: () => {
+      console.log('Update successful');
       showEditDialog.value = false;
       editingClass.value = null;
+      // Refresh the page data to show updated information
+      router.reload();
     },
+    onError: (errors) => {
+      console.log('Update errors:', errors);
+    }
   });
 };
 
@@ -238,18 +263,18 @@ const mockClassData = (classItem: ClassItem) => ({
                   <!-- Class Details -->
                   <Separator />
                   
-                  <div class="space-y-2 text-sm">
-                    <div class="flex items-center justify-between">
-                      <span class="text-muted-foreground">Schedule:</span>
-                      <span>{{ classItem.schedule_time }}</span>
+                  <div class="space-y-1 text-sm">
+                    <div>
+                      <strong>Schedule:</strong> {{ classItem.schedule_time || 'Not set' }}
                     </div>
-                    <div class="flex items-center justify-between">
-                      <span class="text-muted-foreground">Days:</span>
-                      <span>{{ Array.isArray(classItem.schedule_days) ? classItem.schedule_days.join(', ') : classItem.schedule_days }}</span>
+                    <div>
+                      <strong>Days:</strong> {{ Array.isArray(classItem.schedule_days) && classItem.schedule_days.length ? classItem.schedule_days.join(', ') : 'Not set' }}
                     </div>
-                    <div class="flex items-center justify-between">
-                      <span class="text-muted-foreground">Students:</span>
-                      <span>{{ classItem.student_count || 25 }}</span>
+                    <div>
+                      <strong>Room:</strong> {{ classItem.room || 'Not set' }}
+                    </div>
+                    <div>
+                      <strong>Students:</strong> {{ classItem.student_count }}
                     </div>
                   </div>
 
@@ -373,6 +398,24 @@ const mockClassData = (classItem: ClassItem) => ({
           </div>
           
           <div class="space-y-2">
+            <Label for="create-schedule-days">Schedule Days</Label>
+            <div class="flex flex-wrap gap-2">
+              <label v-for="day in ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']" 
+                     :key="day" 
+                     class="flex items-center space-x-2 cursor-pointer">
+                <input 
+                  type="checkbox" 
+                  :value="day" 
+                  v-model="createForm.schedule_days"
+                  class="rounded border-gray-300" 
+                />
+                <span class="text-sm">{{ day }}</span>
+              </label>
+            </div>
+            <p v-if="createForm.errors.schedule_days" class="text-sm text-red-500">{{ createForm.errors.schedule_days }}</p>
+          </div>
+          
+          <div class="space-y-2">
             <Label for="create-description">Description</Label>
             <Textarea 
               id="create-description" 
@@ -478,6 +521,24 @@ const mockClassData = (classItem: ClassItem) => ({
               />
               <p v-if="editForm.errors.schedule_time" class="text-sm text-red-500">{{ editForm.errors.schedule_time }}</p>
             </div>
+          </div>
+          
+          <div class="space-y-2">
+            <Label for="edit-schedule-days">Schedule Days</Label>
+            <div class="flex flex-wrap gap-2">
+              <label v-for="day in ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']" 
+                     :key="day" 
+                     class="flex items-center space-x-2 cursor-pointer">
+                <input 
+                  type="checkbox" 
+                  :value="day" 
+                  v-model="editForm.schedule_days"
+                  class="rounded border-gray-300" 
+                />
+                <span class="text-sm">{{ day }}</span>
+              </label>
+            </div>
+            <p v-if="editForm.errors.schedule_days" class="text-sm text-red-500">{{ editForm.errors.schedule_days }}</p>
           </div>
           
           <DialogFooter>
