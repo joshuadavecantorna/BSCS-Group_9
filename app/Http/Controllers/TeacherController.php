@@ -8,6 +8,7 @@ use App\Models\Student;
 use App\Models\AttendanceSession;
 use App\Models\AttendanceRecord;
 use App\Models\ClassFile;
+use App\Models\ExcuseRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
@@ -16,6 +17,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Exception;
 use Inertia\Inertia;
+use Inertia\Response;
 use Carbon\Carbon;
 
 class TeacherController extends Controller
@@ -3287,7 +3289,7 @@ class TeacherController extends Controller
 
         return response()->stream(function () use ($data) {
             $handle = fopen('php://output', 'w');
-            
+
             // Add CSV headers based on data structure
             if ($data->isNotEmpty()) {
                 $firstRow = $data->first();
@@ -3304,5 +3306,70 @@ class TeacherController extends Controller
 
             fclose($handle);
         }, 200, $headers);
+    }
+
+    /**
+     * Show excuse requests page for teachers
+     */
+    public function excuseRequests(): Response
+    {
+        $teacher = $this->getCurrentTeacher();
+
+        // Get excuse requests for classes taught by this teacher
+        $requests = ExcuseRequest::with(['student', 'attendanceSession.class'])
+            ->whereHas('attendanceSession.class', function($query) use ($teacher) {
+                $query->where('teacher_id', $teacher->user_id);
+            })
+            ->orderBy('created_at', 'desc')
+            ->paginate(20);
+
+        return Inertia::render('Teacher/ExcuseRequests', [
+            'teacher' => $teacher,
+            'requests' => $requests,
+        ]);
+    }
+
+    /**
+     * Approve an excuse request
+     */
+    public function approveExcuseRequest(Request $request, $requestId)
+    {
+        $teacher = $this->getCurrentTeacher();
+
+        $excuseRequest = ExcuseRequest::with(['attendanceSession.class'])
+            ->whereHas('attendanceSession.class', function($query) use ($teacher) {
+                $query->where('teacher_id', $teacher->user_id);
+            })
+            ->findOrFail($requestId);
+
+        $validated = $request->validate([
+            'review_notes' => 'nullable|string|max:1000',
+        ]);
+
+        $excuseRequest->approve($teacher, $validated['review_notes'] ?? null);
+
+        return redirect()->back()->with('success', 'Excuse request approved successfully.');
+    }
+
+    /**
+     * Reject an excuse request
+     */
+    public function rejectExcuseRequest(Request $request, $requestId)
+    {
+        $teacher = $this->getCurrentTeacher();
+
+        $excuseRequest = ExcuseRequest::with(['attendanceSession.class'])
+            ->whereHas('attendanceSession.class', function($query) use ($teacher) {
+                $query->where('teacher_id', $teacher->user_id);
+            })
+            ->findOrFail($requestId);
+
+        $validated = $request->validate([
+            'review_notes' => 'required|string|max:1000',
+        ]);
+
+        $excuseRequest->reject($teacher, $validated['review_notes']);
+
+        return redirect()->back()->with('success', 'Excuse request rejected.');
     }
 }

@@ -46,6 +46,11 @@ const mainNavItems = computed((): NavItem[] => {
         href: '/teacher/files',
         icon: FileText,
       },
+      {
+        title: 'Excuse Requests',
+        href: '/teacher/excuse-requests',
+        icon: ClipboardCheck,
+      },
     ];
   } else if (isStudent.value) {
     // Student Navigation

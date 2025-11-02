@@ -27,6 +27,7 @@ Route::middleware(['auth', 'verified'])->prefix('teacher')->name('teacher.')->gr
     Route::get('/attendance', [App\Http\Controllers\TeacherController::class, 'attendance'])->name('attendance');
     Route::get('/reports', [App\Http\Controllers\TeacherController::class, 'reports'])->name('reports');
     Route::get('/files', [App\Http\Controllers\TeacherController::class, 'files'])->name('files');
+    Route::get('/excuse-requests', [App\Http\Controllers\TeacherController::class, 'excuseRequests'])->name('excuse-requests');
     Route::get('/settings', [App\Http\Controllers\TeacherController::class, 'settings'])->name('settings');
     
     // Class Management
@@ -73,6 +74,10 @@ Route::middleware(['auth', 'verified'])->prefix('teacher')->name('teacher.')->gr
     Route::get('/reports-data/attendance', [App\Http\Controllers\TeacherController::class, 'getAttendanceReports']);
     Route::post('/reports/export-data', [App\Http\Controllers\TeacherController::class, 'exportAttendanceReport']);
     Route::post('/reports/generate', [App\Http\Controllers\TeacherController::class, 'generateAttendanceReport']);
+
+    // Excuse Request Management
+    Route::post('/excuse-requests/{requestId}/approve', [App\Http\Controllers\TeacherController::class, 'approveExcuseRequest'])->name('excuse-requests.approve');
+    Route::post('/excuse-requests/{requestId}/reject', [App\Http\Controllers\TeacherController::class, 'rejectExcuseRequest'])->name('excuse-requests.reject');
 });
 
 // API routes for student lookup

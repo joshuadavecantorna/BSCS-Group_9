@@ -385,21 +385,31 @@ class StudentController extends Controller
         $student = $this->getCurrentStudent();
 
         $requests = ExcuseRequest::where('student_id', $student->id)
-            ->with(['attendanceSession:id,start_time,end_time,class_id'])
+            ->with(['attendanceSession:id,start_time,end_time,class_id,session_date', 'attendanceSession.class:id,name,course'])
             ->orderBy('created_at', 'desc')
             ->paginate(20);
 
-        // Get enrolled classes for the form
-        $classes = DB::table('class_student')
-            ->join('class_models', 'class_student.class_model_id', '=', 'class_models.id')
+        // Get attendance sessions for enrolled classes
+        $sessions = DB::table('attendance_sessions')
+            ->join('class_models', 'attendance_sessions.class_id', '=', 'class_models.id')
+            ->join('class_student', 'class_models.id', '=', 'class_student.class_model_id')
             ->where('class_student.student_id', $student->id)
             ->where('class_student.status', 'enrolled')
-            ->select('class_models.id', 'class_models.name', 'class_models.course')
+            ->select(
+                'attendance_sessions.id',
+                'class_models.name',
+                'class_models.course',
+                'attendance_sessions.session_date',
+                'attendance_sessions.start_time',
+                'attendance_sessions.end_time'
+            )
+            ->orderBy('attendance_sessions.session_date', 'desc')
+            ->orderBy('attendance_sessions.start_time', 'desc')
             ->get();
 
         return Inertia::render('student/ExcuseRequests', [
             'requests' => $requests,
-            'classes' => $classes,
+            'classes' => $sessions,
         ]);
     }
 

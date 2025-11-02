@@ -64,4 +64,42 @@ class ExcuseRequest extends Model
             'class_id' // Local key on attendance_sessions table
         );
     }
+
+    /**
+     * Approve the excuse request
+     */
+    public function approve($reviewer, $reviewNotes = null)
+    {
+        $this->update([
+            'status' => 'approved',
+            'reviewed_at' => now(),
+            'reviewed_by' => $reviewer->id,
+            'review_notes' => $reviewNotes,
+        ]);
+
+        // Update the corresponding attendance record if it exists
+        if ($this->attendanceSession) {
+            $attendance = \App\Models\Attendance::where('student_id', $this->student_id)
+                ->where('class_id', $this->attendanceSession->class_id)
+                ->whereDate('date', $this->attendanceSession->session_date)
+                ->first();
+
+            if ($attendance) {
+                $attendance->update(['status' => 'excused']);
+            }
+        }
+    }
+
+    /**
+     * Reject the excuse request
+     */
+    public function reject($reviewer, $reviewNotes)
+    {
+        $this->update([
+            'status' => 'rejected',
+            'reviewed_at' => now(),
+            'reviewed_by' => $reviewer->id,
+            'review_notes' => $reviewNotes,
+        ]);
+    }
 }
