@@ -19,7 +19,7 @@ return new class extends Migration
         }
         
         // Generate class codes for existing records
-        DB::statement("UPDATE class_models SET class_code = CONCAT(course, '-', section, '-', year, '-', UNIX_TIMESTAMP(created_at)) WHERE class_code IS NULL");
+        DB::statement("UPDATE class_models SET class_code = CONCAT(course, '-', section, '-', year, '-', FLOOR(EXTRACT(EPOCH FROM created_at))) WHERE class_code IS NULL");
         
         // Make class_code required and unique after populating existing records
         Schema::table('class_models', function (Blueprint $table) {
