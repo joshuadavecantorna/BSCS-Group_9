@@ -6,6 +6,23 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 
+interface WeeklyAttendance {
+  class_name: string;
+  course: string;
+  student_count: number;
+  attendance_rate: number;
+  status: 'excellent' | 'good' | 'needs_improvement';
+}
+
+interface RecentExport {
+  name: string;
+  type: string;
+  format: string;
+  created_at: string;
+  file_size: string;
+  status: string;
+}
+
 interface Props {
   teacher: {
     id: number;
@@ -14,10 +31,52 @@ interface Props {
     department: string;
     position: string;
     email: string;
+    user_id?: number;
+  };
+  stats: {
+    total_reports: number;
+    average_attendance: number;
+    active_students: number;
+    reports_downloaded: number;
+  };
+  weeklyAttendance: WeeklyAttendance[];
+  recentExports: RecentExport[];
+  summary: {
+    total_classes: number;
+    total_students: number;
+    attendance_data: WeeklyAttendance[];
   };
 }
 
 const props = defineProps<Props>();
+
+// Helper function to get status badge variant
+const getStatusVariant = (status: string) => {
+  switch (status) {
+    case 'excellent':
+      return 'default';
+    case 'good':
+      return 'secondary';
+    case 'needs_improvement':
+      return 'destructive';
+    default:
+      return 'outline';
+  }
+};
+
+// Helper function to get status color for progress bars
+const getStatusColor = (status: string) => {
+  switch (status) {
+    case 'excellent':
+      return 'bg-green-600';
+    case 'good':
+      return 'bg-blue-600';
+    case 'needs_improvement':
+      return 'bg-yellow-600';
+    default:
+      return 'bg-gray-600';
+  }
+};
 
 const breadcrumbs = [
   { title: 'Teacher Dashboard', href: '/teacher/dashboard' },
@@ -85,26 +144,22 @@ const breadcrumbs = [
           </CardHeader>
           <CardContent>
             <div class="space-y-4">
-              <div class="flex justify-between items-center">
-                <span class="text-sm font-medium">Introduction to Programming</span>
-                <div class="flex items-center gap-2">
-                  <span class="text-sm text-muted-foreground">92%</span>
-                  <Badge variant="default">Excellent</Badge>
+              <template v-if="props.weeklyAttendance.length > 0">
+                <div v-for="classData in props.weeklyAttendance" :key="classData.class_name" class="space-y-2">
+                  <div class="flex justify-between items-center">
+                    <span class="text-sm font-medium">{{ classData.class_name }}</span>
+                    <div class="flex items-center gap-2">
+                      <span class="text-sm text-muted-foreground">{{ classData.attendance_rate }}%</span>
+                      <Badge :variant="getStatusVariant(classData.status)">{{ classData.status.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()) }}</Badge>
+                    </div>
+                  </div>
+                  <div class="w-full bg-gray-200 rounded-full h-2">
+                    <div :class="getStatusColor(classData.status)" class="h-2 rounded-full" :style="`width: ${classData.attendance_rate}%`"></div>
+                  </div>
                 </div>
-              </div>
-              <div class="w-full bg-gray-200 rounded-full h-2">
-                <div class="bg-green-600 h-2 rounded-full" style="width: 92%"></div>
-              </div>
-              
-              <div class="flex justify-between items-center">
-                <span class="text-sm font-medium">Data Structures & Algorithms</span>
-                <div class="flex items-center gap-2">
-                  <span class="text-sm text-muted-foreground">85%</span>
-                  <Badge variant="secondary">Good</Badge>
-                </div>
-              </div>
-              <div class="w-full bg-gray-200 rounded-full h-2">
-                <div class="bg-blue-600 h-2 rounded-full" style="width: 85%"></div>
+              </template>
+              <div v-else class="text-center py-4 text-muted-foreground">
+                No attendance data available
               </div>
             </div>
           </CardContent>
@@ -118,28 +173,17 @@ const breadcrumbs = [
           </CardHeader>
           <CardContent>
             <div class="space-y-4">
-              <div class="flex items-center justify-between p-3 border rounded-lg">
-                <div>
-                  <p class="font-medium text-sm">Monthly Attendance Report</p>
-                  <p class="text-xs text-muted-foreground">Generated today at 2:30 PM</p>
+              <template v-if="props.recentExports.length > 0">
+                <div v-for="export_ in props.recentExports" :key="export_.name" class="flex items-center justify-between p-3 border rounded-lg">
+                  <div>
+                    <p class="font-medium text-sm">{{ export_.name }}</p>
+                    <p class="text-xs text-muted-foreground">Generated {{ export_.created_at }} • {{ export_.file_size }}</p>
+                  </div>
+                  <Badge variant="outline">{{ export_.format }}</Badge>
                 </div>
-                <Badge variant="outline">PDF</Badge>
-              </div>
-              
-              <div class="flex items-center justify-between p-3 border rounded-lg">
-                <div>
-                  <p class="font-medium text-sm">Student Performance Analysis</p>
-                  <p class="text-xs text-muted-foreground">Generated yesterday</p>
-                </div>
-                <Badge variant="outline">Excel</Badge>
-              </div>
-              
-              <div class="flex items-center justify-between p-3 border rounded-lg">
-                <div>
-                  <p class="font-medium text-sm">Weekly Summary Report</p>
-                  <p class="text-xs text-muted-foreground">Generated 2 days ago</p>
-                </div>
-                <Badge variant="outline">PDF</Badge>
+              </template>
+              <div v-else class="text-center py-4 text-muted-foreground">
+                No recent export activities
               </div>
             </div>
           </CardContent>
@@ -154,7 +198,7 @@ const breadcrumbs = [
             <span class="text-xl">📋</span>
           </CardHeader>
           <CardContent>
-            <div class="text-2xl font-bold">47</div>
+            <div class="text-2xl font-bold">{{ props.stats.total_reports }}</div>
             <p class="text-xs text-muted-foreground mt-1">
               Generated this month
             </p>
@@ -167,9 +211,9 @@ const breadcrumbs = [
             <span class="text-xl">📈</span>
           </CardHeader>
           <CardContent>
-            <div class="text-2xl font-bold">88.5%</div>
+            <div class="text-2xl font-bold">{{ props.stats.average_attendance }}%</div>
             <p class="text-xs text-muted-foreground mt-1">
-              <span class="text-green-600">+2.1%</span> from last month
+              Overall attendance rate
             </p>
           </CardContent>
         </Card>
@@ -180,9 +224,9 @@ const breadcrumbs = [
             <span class="text-xl">👨‍🎓</span>
           </CardHeader>
           <CardContent>
-            <div class="text-2xl font-bold">73</div>
+            <div class="text-2xl font-bold">{{ props.stats.active_students }}</div>
             <p class="text-xs text-muted-foreground mt-1">
-              Across all classes
+              Across {{ props.summary.total_classes }} classes
             </p>
           </CardContent>
         </Card>
@@ -193,9 +237,9 @@ const breadcrumbs = [
             <span class="text-xl">⬇️</span>
           </CardHeader>
           <CardContent>
-            <div class="text-2xl font-bold">23</div>
+            <div class="text-2xl font-bold">{{ props.stats.reports_downloaded }}</div>
             <p class="text-xs text-muted-foreground mt-1">
-              This week
+              This month
             </p>
           </CardContent>
         </Card>

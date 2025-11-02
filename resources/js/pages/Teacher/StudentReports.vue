@@ -13,16 +13,31 @@ interface Props {
     department: string;
     position: string;
     email: string;
+    name?: string;
   };
   students: Array<{
     id: number;
     student_id: string;
     name: string;
     email: string;
+    phone?: string;
+    course: string;
+    year: string;
+    section: string;
+    class_id: number;
     class_name: string;
+    enrolled_at: string;
     attendance_rate: number;
+    recent_attendance_rate: number;
     total_sessions: number;
-    present_sessions: number;
+    present_count: number;
+    absent_count: number;
+    late_count: number;
+    excused_count: number;
+    recent_pattern: string[];
+    trend: 'improving' | 'declining' | 'stable';
+    performance: 'excellent' | 'good' | 'fair' | 'poor';
+    needs_attention: boolean;
   }>;
   classes: Array<{
     id: number;
@@ -30,6 +45,31 @@ interface Props {
     course: string;
     section: string;
   }>;
+  summaryStats: {
+    total_students: number;
+    avg_attendance_rate: number;
+    excellent_performers: number;
+    good_performers: number;
+    fair_performers: number;
+    poor_performers: number;
+    students_needing_attention: number;
+    improving_trend: number;
+    declining_trend: number;
+  };
+  filterOptions: {
+    courses: string[];
+    years: string[];
+    sections: string[];
+  };
+  filters: {
+    class_id?: number;
+    course?: string;
+    year?: string;
+    section?: string;
+    attendance_threshold?: number;
+    search?: string;
+  };
+
 }
 
 const props = defineProps<Props>();
@@ -164,7 +204,7 @@ const getAttendanceLabel = (rate: number) => {
                 <TableCell>{{ student.class_name }}</TableCell>
                 <TableCell>{{ student.total_sessions }}</TableCell>
                 <TableCell>
-                  <span class="text-green-600 font-medium">{{ student.present_sessions }}</span>
+                  <span class="text-green-600 font-medium">{{ student.present_count }}</span>
                 </TableCell>
                 <TableCell>
                   <span class="font-medium">{{ student.attendance_rate }}%</span>

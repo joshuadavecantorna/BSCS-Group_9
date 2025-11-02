@@ -22,6 +22,7 @@ Route::get('/teacher/files', function () {
 // Teacher Routes
 Route::middleware(['auth', 'verified'])->prefix('teacher')->name('teacher.')->group(function () {
     Route::get('/dashboard', [App\Http\Controllers\TeacherController::class, 'dashboard'])->name('dashboard');
+    Route::get('/dashboard/api', [App\Http\Controllers\TeacherController::class, 'dashboardApi'])->name('dashboard.api');
     Route::get('/classes', [App\Http\Controllers\TeacherController::class, 'classes'])->name('classes');
     Route::get('/attendance', [App\Http\Controllers\TeacherController::class, 'attendance'])->name('attendance');
     Route::get('/reports', [App\Http\Controllers\TeacherController::class, 'reports'])->name('reports');
@@ -66,6 +67,7 @@ Route::middleware(['auth', 'verified'])->prefix('teacher')->name('teacher.')->gr
     Route::get('/reports/export', [App\Http\Controllers\TeacherController::class, 'exportReports']);
     Route::get('/reports-data/attendance', [App\Http\Controllers\TeacherController::class, 'getAttendanceReports']);
     Route::post('/reports/export-data', [App\Http\Controllers\TeacherController::class, 'exportAttendanceReport']);
+    Route::post('/reports/generate', [App\Http\Controllers\TeacherController::class, 'generateAttendanceReport']);
 });
 
 // API routes for student lookup

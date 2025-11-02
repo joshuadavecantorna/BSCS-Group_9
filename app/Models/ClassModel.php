@@ -109,7 +109,7 @@ class ClassModel extends Model
 
     public function scopeActive($query)
     {
-        return $query->where('is_active', 'true');
+        return $query->whereRaw('COALESCE(is_active, true) = true');
     }
 
     // Accessors

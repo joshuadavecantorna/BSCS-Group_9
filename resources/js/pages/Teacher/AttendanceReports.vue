@@ -138,34 +138,39 @@ const getStatusBadge = (percentage: number) => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              <TableRow v-for="session in sessions" :key="session.id">
+              <TableRow v-for="session in sessions.filter(s => s && s.id)" :key="session.id">
                 <TableCell>
                   <div>
-                    <div class="font-medium">{{ session.class_name }}</div>
-                    <div class="text-sm text-muted-foreground">{{ session.course }} - {{ session.section }}</div>
+                    <div class="font-medium">{{ session.class_name || 'Unknown Class' }}</div>
+                    <div class="text-sm text-muted-foreground">{{ session.course || 'Unknown' }} - {{ session.section || 'Unknown' }}</div>
                   </div>
                 </TableCell>
-                <TableCell>{{ session.session_name }}</TableCell>
-                <TableCell>{{ new Date(session.session_date).toLocaleDateString() }}</TableCell>
+                <TableCell>{{ session.session_name || 'Unnamed Session' }}</TableCell>
+                <TableCell>{{ session.session_date ? new Date(session.session_date).toLocaleDateString() : 'Unknown Date' }}</TableCell>
                 <TableCell>
-                  <span class="text-green-600 font-medium">{{ session.present_count }}</span>
+                  <span class="text-green-600 font-medium">{{ session.present_count || 0 }}</span>
                 </TableCell>
                 <TableCell>
-                  <span class="text-red-600 font-medium">{{ session.absent_count }}</span>
+                  <span class="text-red-600 font-medium">{{ session.absent_count || 0 }}</span>
                 </TableCell>
-                <TableCell>{{ session.total_count }}</TableCell>
+                <TableCell>{{ session.total_count || 0 }}</TableCell>
                 <TableCell>
                   <div class="flex items-center gap-2">
-                    <span class="font-medium">{{ getAttendancePercentage(session.present_count, session.total_count) }}%</span>
-                    <Badge :variant="getStatusBadge(getAttendancePercentage(session.present_count, session.total_count))">
-                      {{ getAttendancePercentage(session.present_count, session.total_count) >= 75 ? 'Good' : 'Needs Attention' }}
+                    <span class="font-medium">{{ getAttendancePercentage(session.present_count || 0, session.total_count || 0) }}%</span>
+                    <Badge :variant="getStatusBadge(getAttendancePercentage(session.present_count || 0, session.total_count || 0))">
+                      {{ getAttendancePercentage(session.present_count || 0, session.total_count || 0) >= 75 ? 'Good' : 'Needs Attention' }}
                     </Badge>
                   </div>
                 </TableCell>
                 <TableCell>
                   <Badge :variant="session.status === 'active' ? 'default' : 'secondary'">
-                    {{ session.status }}
+                    {{ session.status || 'unknown' }}
                   </Badge> 
+                </TableCell>
+              </TableRow>
+              <TableRow v-if="!sessions || sessions.length === 0">
+                <TableCell colspan="8" class="text-center text-muted-foreground py-8">
+                  No attendance sessions found
                 </TableCell>
               </TableRow>
             </TableBody>

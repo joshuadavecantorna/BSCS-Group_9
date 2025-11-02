@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import AppLayout from '@/layouts/AppLayout.vue';
 import { Head } from '@inertiajs/vue3';
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
+import axios from 'axios';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -38,6 +39,48 @@ interface Props {
 
 const props = defineProps<Props>();
 
+// Real-time data state
+const realtimeStats = ref(props.stats);
+const realtimeActivity = ref(props.recentActivity || []);
+const lastUpdated = ref(new Date().toISOString());
+const isUpdating = ref(false);
+const updateInterval = ref<NodeJS.Timeout | null>(null);
+
+// Update functions
+const fetchRealtimeData = async () => {
+  if (isUpdating.value) return;
+  
+  try {
+    isUpdating.value = true;
+    const response = await axios.get('/teacher/dashboard/api');
+    
+    if (response.data.success) {
+      realtimeStats.value = response.data.data.stats;
+      realtimeActivity.value = response.data.data.recentActivity || [];
+      lastUpdated.value = response.data.data.timestamp;
+    }
+  } catch (error) {
+    console.error('Failed to fetch real-time data:', error);
+  } finally {
+    isUpdating.value = false;
+  }
+};
+
+const startRealtimeUpdates = () => {
+  // Update every 10 seconds for more real-time feel
+  updateInterval.value = setInterval(fetchRealtimeData, 10000);
+  
+  // Also fetch immediately on mount
+  fetchRealtimeData();
+};
+
+const stopRealtimeUpdates = () => {
+  if (updateInterval.value) {
+    clearInterval(updateInterval.value);
+    updateInterval.value = null;
+  }
+};
+
 const showUnderDevelopmentAlert = () => {
   alert('Under Development');
 };
@@ -46,13 +89,24 @@ const breadcrumbs = [
   { title: 'Teacher Dashboard', href: '/teacher/dashboard' }
 ];
 
+// Lifecycle hooks
+onMounted(() => {
+  startRealtimeUpdates();
+});
+
+onUnmounted(() => {
+  stopRealtimeUpdates();
+});
+
 // Computed properties
 const teacherName = computed(() => `${props.teacher.first_name} ${props.teacher.last_name}`);
+const currentStats = computed(() => realtimeStats.value);
+const currentActivity = computed(() => realtimeActivity.value);
 
 // Weekly attendance data based on real stats
 const weeklyAttendance = computed(() => {
-  const totalStudents = props.stats.totalStudents;
-  const attendanceRate = props.stats.weeklyAttendanceRate / 100;
+  const totalStudents = currentStats.value.totalStudents;
+  const attendanceRate = currentStats.value.weeklyAttendanceRate / 100;
   
   return [
     { day: 'Mon', present: Math.floor(totalStudents * attendanceRate * 0.9), absent: Math.floor(totalStudents * (1 - attendanceRate * 0.9)) },
@@ -87,7 +141,7 @@ const weeklyAttendance = computed(() => {
             <span class="text-xl">📚</span>
           </CardHeader>
           <CardContent>
-            <div class="text-2xl font-bold">{{ stats.totalClasses }}</div>
+            <div class="text-2xl font-bold">{{ currentStats.totalClasses }}</div>
             <p class="text-xs text-muted-foreground mt-1">
               Active classes
             </p>
@@ -101,7 +155,7 @@ const weeklyAttendance = computed(() => {
             <span class="text-xl">👥</span>
           </CardHeader>
           <CardContent>
-            <div class="text-2xl font-bold">{{ stats.totalStudents }}</div>
+            <div class="text-2xl font-bold">{{ currentStats.totalStudents }}</div>
             <p class="text-xs text-muted-foreground mt-1">
               Across all classes
             </p>
@@ -115,7 +169,7 @@ const weeklyAttendance = computed(() => {
             <span class="text-xl">📅</span>
           </CardHeader>
           <CardContent>
-            <div class="text-2xl font-bold">{{ stats.todaySessions }}</div>
+            <div class="text-2xl font-bold">{{ currentStats.todaySessions }}</div>
             <p class="text-xs text-muted-foreground mt-1">
               Attendance sessions
             </p>
@@ -129,7 +183,7 @@ const weeklyAttendance = computed(() => {
             <span class="text-xl">📊</span>
           </CardHeader>
           <CardContent>
-            <div class="text-2xl font-bold">{{ stats.weeklyAttendanceRate }}%</div>
+            <div class="text-2xl font-bold">{{ currentStats.weeklyAttendanceRate }}%</div>
             <p class="text-xs text-muted-foreground mt-1">
               Attendance rate
             </p>
@@ -146,7 +200,7 @@ const weeklyAttendance = computed(() => {
             <span class="text-xl">✅</span>
           </CardHeader>
           <CardContent>
-            <div class="text-2xl font-bold text-green-600">{{ stats.todayPresent }}</div>
+            <div class="text-2xl font-bold text-green-600">{{ currentStats.todayPresent }}</div>
             <p class="text-xs text-muted-foreground mt-1">
               Students marked present
             </p>
@@ -160,7 +214,7 @@ const weeklyAttendance = computed(() => {
             <span class="text-xl">⏰</span>
           </CardHeader>
           <CardContent>
-            <div class="text-2xl font-bold text-yellow-600">{{ stats.todayLate }}</div>
+            <div class="text-2xl font-bold text-yellow-600">{{ currentStats.todayLate }}</div>
             <p class="text-xs text-muted-foreground mt-1">
               Students marked late
             </p>
@@ -174,7 +228,7 @@ const weeklyAttendance = computed(() => {
             <span class="text-xl">❌</span>
           </CardHeader>
           <CardContent>
-            <div class="text-2xl font-bold text-red-600">{{ stats.todayAbsent }}</div>
+            <div class="text-2xl font-bold text-red-600">{{ currentStats.todayAbsent }}</div>
             <p class="text-xs text-muted-foreground mt-1">
               Students marked absent
             </p>
@@ -188,7 +242,7 @@ const weeklyAttendance = computed(() => {
             <span class="text-xl">�</span>
           </CardHeader>
           <CardContent>
-            <div class="text-2xl font-bold text-blue-600">{{ stats.todayExcused }}</div>
+            <div class="text-2xl font-bold text-blue-600">{{ currentStats.todayExcused }}</div>
             <p class="text-xs text-muted-foreground mt-1">
               Students excused
             </p>
@@ -241,7 +295,7 @@ const weeklyAttendance = computed(() => {
             </CardHeader>
             <CardContent>
               <div class="space-y-4">
-                <template v-for="(activity, index) in recentActivity" :key="index">
+                <template v-for="(activity, index) in currentActivity" :key="index">
                   <div class="flex items-start gap-3">
                     <Badge 
                       :variant="activity.type === 'info' ? 'default' : activity.type === 'warning' ? 'outline' : 'secondary'"
@@ -260,7 +314,7 @@ const weeklyAttendance = computed(() => {
                       </p>
                     </div>
                   </div>
-                  <Separator v-if="index < (recentActivity?.length || 0) - 1" />
+                  <Separator v-if="index < (currentActivity?.length || 0) - 1" />
                 </template>
               </div>
             </CardContent>

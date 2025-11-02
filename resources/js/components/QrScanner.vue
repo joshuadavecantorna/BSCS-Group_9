@@ -344,6 +344,15 @@ const validateStudentData = (data: any): string | null => {
   return null;
 };
 
+// Get current CSRF token
+const getCsrfToken = (): string => {
+  const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+  if (!token) {
+    console.warn('CSRF token not found in meta tag');
+  }
+  return token || '';
+};
+
 // Lookup student by name in database - use existing QR scan endpoint
 const lookupStudentByName = async (name: string, course: string): Promise<Student | null> => {
   try {
@@ -352,20 +361,30 @@ const lookupStudentByName = async (name: string, course: string): Promise<Studen
     
     // Check if sessionId is provided for direct marking  
     if (props.sessionId) {
+      console.log('Making QR scan request:', { sessionId: props.sessionId, qrData });
+      
       const response = await fetch(`/teacher/attendance/${props.sessionId}/qr-scan`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
-          'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
+          'X-CSRF-TOKEN': getCsrfToken(),
           'X-Requested-With': 'XMLHttpRequest'
         },
         credentials: 'same-origin',
         body: JSON.stringify({ qr_data: qrData })
       });
 
+      console.log('QR scan response status:', response.status);
+
+      if (response.status === 419) {
+        throw new Error('CSRF token mismatch. Please refresh the page and try again.');
+      }
+
       if (response.ok) {
         const data = await response.json();
+        console.log('QR scan response data:', data);
+        
         if (data.success) {
           // Student was found and marked as present automatically
           console.log('Student marked as present:', data.student);
@@ -381,8 +400,14 @@ const lookupStudentByName = async (name: string, course: string): Promise<Studen
           throw new Error(data.message || 'Student not found');
         }
       } else {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Lookup failed');
+        let errorMessage = `Request failed with status ${response.status}`;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.message || errorMessage;
+        } catch (e) {
+          // Failed to parse error JSON, use status message
+        }
+        throw new Error(errorMessage);
       }
     } else {
       // If no session ID, just return null (can't lookup without session context)

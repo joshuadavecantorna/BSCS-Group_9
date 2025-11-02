@@ -18,6 +18,7 @@ class AttendanceSession extends Model
         'session_date',
         'start_time',
         'end_time',
+        'duration',
         'status',
         'notes',
         'qr_code',
