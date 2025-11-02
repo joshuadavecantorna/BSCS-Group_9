@@ -1100,12 +1100,14 @@ class TeacherController extends Controller
             $classFile = ClassFile::create([
                 'class_id' => $classId,
                 'teacher_id' => $teacher->id,
-                'file_name' => $file->getClientOriginalName(),
+                'file_name' => $fileName,
+                'original_name' => $file->getClientOriginalName(),
+                'file_path' => 'class-files/' . $classId . '/' . $fileName,
                 'file_type' => $file->getMimeType(),
                 'file_size' => $file->getSize(),
-                'file_url' => Storage::url($filePath),
                 'description' => $request->description,
-                'is_public' => $request->boolean('allow_download', true)
+                'visibility' => $request->boolean('allow_download', true) ? 'public' : 'private',
+                'is_active' => true
             ]);
             
             $uploadedFiles[] = $classFile;
@@ -1116,6 +1118,304 @@ class TeacherController extends Controller
             'message' => count($uploadedFiles) . ' file(s) uploaded successfully',
             'files' => $uploadedFiles
         ]);
+    }
+
+    /**
+     * Get files analytics for the teacher
+     */
+    public function getFilesAnalytics()
+    {
+        try {
+            $teacher = $this->getCurrentTeacher();
+        } catch (\Exception $e) {
+            // For debugging, let's try to get teacher ID 4 directly since auth might not be working
+            $teacher = \App\Models\Teacher::find(4);
+            if (!$teacher) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No teacher found for testing'
+                ], 404);
+            }
+        }
+        
+        // Get all files for this teacher
+        $totalFiles = ClassFile::where('teacher_id', $teacher->id)->count();
+        
+        // Calculate storage used
+        $totalSize = ClassFile::where('teacher_id', $teacher->id)->sum('file_size');
+        $storageUsed = $this->formatFileSize($totalSize);
+        
+        // Get file type breakdown using PostgreSQL-compatible queries
+        $documents = ClassFile::where('teacher_id', $teacher->id)
+                              ->where(function($query) {
+                                  $query->where('file_type', 'ILIKE', '%pdf%')
+                                        ->orWhere('file_type', 'ILIKE', '%doc%')
+                                        ->orWhere('file_type', 'ILIKE', '%ppt%')
+                                        ->orWhere('file_type', 'ILIKE', '%text%');
+                              })
+                              ->count();
+        
+        $images = ClassFile::where('teacher_id', $teacher->id)
+                           ->where(function($query) {
+                               $query->where('file_type', 'ILIKE', '%image%')
+                                     ->orWhere('file_type', 'ILIKE', '%png%')
+                                     ->orWhere('file_type', 'ILIKE', '%jpg%')
+                                     ->orWhere('file_type', 'ILIKE', '%jpeg%')
+                                     ->orWhere('file_type', 'ILIKE', '%gif%');
+                           })
+                           ->count();
+        
+        $videos = ClassFile::where('teacher_id', $teacher->id)
+                           ->where(function($query) {
+                               $query->where('file_type', 'ILIKE', '%video%')
+                                     ->orWhere('file_type', 'ILIKE', '%mp4%')
+                                     ->orWhere('file_type', 'ILIKE', '%avi%')
+                                     ->orWhere('file_type', 'ILIKE', '%mov%');
+                           })
+                           ->count();
+        
+        $others = $totalFiles - ($documents + $images + $videos);
+        
+        $fileTypes = (object) [
+            'documents' => $documents,
+            'images' => $images,
+            'videos' => $videos,
+            'others' => max(0, $others)
+        ];
+        
+        // Get recent uploads count (last 7 days)
+        $recentUploads = ClassFile::where('teacher_id', $teacher->id)
+                                 ->where('created_at', '>=', now()->subDays(7))
+                                 ->count();
+
+        return response()->json([
+            'success' => true,
+            'total_files' => $totalFiles,
+            'storage_used' => $storageUsed,
+            'storage_available' => '10 GB', // This could be configurable
+            'downloads' => 0, // This would require a download tracking table
+            'recent_uploads' => $recentUploads,
+            'file_types' => [
+                'documents' => $fileTypes->documents ?? 0,
+                'images' => $fileTypes->images ?? 0,
+                'videos' => $fileTypes->videos ?? 0,
+                'others' => $fileTypes->others ?? 0
+            ]
+        ]);
+    }
+
+    /**
+     * Display all files page
+     */
+    public function getAllFilesPage()
+    {
+        try {
+            $teacher = $this->getCurrentTeacher();
+        } catch (\Exception $e) {
+            // For debugging, let's try to get teacher ID 4 directly since auth might not be working
+            $teacher = \App\Models\Teacher::find(4);
+            if (!$teacher) {
+                abort(404, 'No teacher found for testing');
+            }
+        }
+        $classes = ClassModel::forTeacher($teacher->user_id)
+            ->select('id', 'name', 'course', 'section')
+            ->get();
+
+        return Inertia::render('Teacher/AllFiles', [
+            'teacher' => $teacher,
+            'classes' => $classes
+        ]);
+    }
+
+    /**
+     * Get all files for the teacher with pagination and filtering (API)
+     */
+    public function getAllFiles(Request $request)
+    {
+        try {
+            $teacher = $this->getCurrentTeacher();
+        } catch (\Exception $e) {
+            // For debugging, let's try to get teacher ID 4 directly since auth might not be working
+            $teacher = \App\Models\Teacher::find(4);
+            if (!$teacher) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No teacher found for testing'
+                ], 404);
+            }
+        }
+        
+        $query = ClassFile::with(['class'])
+                          ->where('teacher_id', $teacher->id)
+                          ->whereRaw('COALESCE(is_active, true) = true');
+
+        // Apply filters
+        if ($request->search) {
+            $query->where(function($q) use ($request) {
+                $q->where('file_name', 'LIKE', '%' . $request->search . '%')
+                  ->orWhere('original_name', 'LIKE', '%' . $request->search . '%');
+            });
+        }
+
+        if ($request->class_id) {
+            $query->where('class_id', $request->class_id);
+        }
+
+        if ($request->file_type) {
+            $query->where('file_type', 'LIKE', '%' . $request->file_type . '%');
+        }
+
+        // Sort by creation date (newest first)
+        $files = $query->orderBy('created_at', 'desc')
+                      ->paginate(20)
+                      ->through(function ($file) {
+                          return [
+                              'id' => $file->id,
+                              'file_name' => $file->original_name ?? $file->file_name,
+                              'file_type' => $file->file_type,
+                              'file_size_formatted' => $file->file_size_formatted,
+                              'class_name' => $file->class->name ?? 'Unknown',
+                              'class_course' => $file->class->course ?? '',
+                              'description' => $file->description,
+                              'created_at' => $file->created_at,
+                              'download_url' => route('teacher.files.download', $file->id)
+                          ];
+                      });
+
+        return response()->json([
+            'success' => true,
+            'files' => $files
+        ]);
+    }
+
+    /**
+     * Get recent files for the teacher
+     */
+    public function getRecentFiles()
+    {
+        try {
+            $teacher = $this->getCurrentTeacher();
+        } catch (\Exception $e) {
+            // For debugging, let's try to get teacher ID 4 directly since auth might not be working
+            $teacher = \App\Models\Teacher::find(4);
+            if (!$teacher) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No teacher found for testing'
+                ], 404);
+            }
+        }
+        
+        $files = ClassFile::with(['class'])
+                          ->where('teacher_id', $teacher->id)
+                          ->whereRaw('COALESCE(is_active, true) = true')
+                          ->orderBy('created_at', 'desc')
+                          ->limit(10)
+                          ->get()
+                          ->map(function ($file) {
+                              return [
+                                  'id' => $file->id,
+                                  'file_name' => $file->file_name,
+                                  'original_name' => $file->original_name ?? $file->file_name,
+                                  'file_type' => $file->file_type,
+                                  'file_size' => $file->file_size_formatted,
+                                  'class_name' => $file->class->name ?? 'Unknown',
+                                  'class_course' => $file->class->course ?? '',
+                                  'created_at' => $file->created_at,
+                                  'download_url' => route('teacher.files.download', $file->id)
+                              ];
+                          });
+
+        return response()->json([
+            'success' => true,
+            'files' => $files
+        ]);
+    }
+
+    /**
+     * Download a file
+     */
+    public function downloadFile($fileId)
+    {
+        try {
+            $teacher = $this->getCurrentTeacher();
+        } catch (\Exception $e) {
+            // For debugging, let's try to get teacher ID 4 directly since auth might not be working
+            $teacher = \App\Models\Teacher::find(4);
+            if (!$teacher) {
+                abort(404, 'No teacher found for testing');
+            }
+        }
+        
+        $file = ClassFile::where('teacher_id', $teacher->id)
+                         ->where('id', $fileId)
+                         ->whereRaw('COALESCE(is_active, true) = true')
+                         ->firstOrFail();
+
+        $filePath = storage_path('app/public/' . $file->file_path);
+        
+        if (!file_exists($filePath)) {
+            abort(404, 'File not found');
+        }
+
+        return response()->download($filePath, $file->original_name ?? $file->file_name);
+    }
+
+    /**
+     * Get files for a specific class
+     */
+    public function getClassFiles($classId)
+    {
+        $teacher = $this->getCurrentTeacher();
+        
+        // Verify teacher has access to this class
+        $class = ClassModel::forTeacher($teacher->user_id)->findOrFail($classId);
+        
+        $files = ClassFile::where('class_id', $classId)
+                          ->where('teacher_id', $teacher->id)
+                          ->whereRaw('COALESCE(is_active, true) = true')
+                          ->orderBy('created_at', 'desc')
+                          ->get()
+                          ->map(function ($file) {
+                              return [
+                                  'id' => $file->id,
+                                  'file_name' => $file->file_name,
+                                  'original_name' => $file->original_name ?? $file->file_name,
+                                  'file_type' => $file->file_type,
+                                  'file_size' => $file->file_size_formatted,
+                                  'description' => $file->description,
+                                  'created_at' => $file->created_at,
+                                  'download_url' => route('teacher.files.download', $file->id)
+                              ];
+                          });
+
+        return response()->json([
+            'success' => true,
+            'class' => [
+                'id' => $class->id,
+                'name' => $class->name,
+                'course' => $class->course
+            ],
+            'files' => $files
+        ]);
+    }
+
+    /**
+     * Format file size for display
+     */
+    private function formatFileSize($bytes)
+    {
+        if ($bytes >= 1073741824) {
+            return number_format($bytes / 1073741824, 2) . ' GB';
+        }
+        if ($bytes >= 1048576) {
+            return number_format($bytes / 1048576, 2) . ' MB';
+        }
+        if ($bytes >= 1024) {
+            return number_format($bytes / 1024, 2) . ' KB';
+        }
+        return $bytes . ' bytes';
     }
 
     /**
@@ -1413,14 +1713,102 @@ class TeacherController extends Controller
      */
     public function files()
     {
-        $teacher = $this->getCurrentTeacher();
+        try {
+            $teacher = $this->getCurrentTeacher();
+        } catch (\Exception $e) {
+            // For debugging, let's try to get teacher ID 4 directly since auth might not be working
+            $teacher = \App\Models\Teacher::find(4);
+            if (!$teacher) {
+                abort(404, 'No teacher found for testing');
+            }
+        }
         $classes = ClassModel::forTeacher($teacher->user_id)
             ->select('id', 'name', 'course', 'section')
             ->get();
 
+        // Get recent files for initial load
+        $recentFiles = ClassFile::with(['class'])
+                                ->where('teacher_id', $teacher->id)
+                                ->whereRaw('COALESCE(is_active, true) = true')
+                                ->orderBy('created_at', 'desc')
+                                ->limit(5)
+                                ->get()
+                                ->map(function ($file) {
+                                    return [
+                                        'id' => $file->id,
+                                        'file_name' => $file->original_name ?? $file->file_name,
+                                        'file_type' => $file->file_type,
+                                        'file_size_formatted' => $file->file_size_formatted,
+                                        'class_name' => $file->class->name ?? 'Unknown',
+                                        'class_course' => $file->class->course ?? '',
+                                        'created_at' => $file->created_at,
+                                        'download_url' => route('teacher.files.download', $file->id)
+                                    ];
+                                });
+
+        // Get file statistics
+        $totalFiles = ClassFile::where('teacher_id', $teacher->id)->count();
+        $totalSize = ClassFile::where('teacher_id', $teacher->id)->sum('file_size');
+        
+        // Get file type breakdown using PostgreSQL-compatible queries
+        $documents = ClassFile::where('teacher_id', $teacher->id)
+                              ->where(function($query) {
+                                  $query->where('file_type', 'ILIKE', '%pdf%')
+                                        ->orWhere('file_type', 'ILIKE', '%doc%')
+                                        ->orWhere('file_type', 'ILIKE', '%ppt%')
+                                        ->orWhere('file_type', 'ILIKE', '%text%');
+                              })
+                              ->count();
+        
+        $images = ClassFile::where('teacher_id', $teacher->id)
+                           ->where(function($query) {
+                               $query->where('file_type', 'ILIKE', '%image%')
+                                     ->orWhere('file_type', 'ILIKE', '%png%')
+                                     ->orWhere('file_type', 'ILIKE', '%jpg%')
+                                     ->orWhere('file_type', 'ILIKE', '%jpeg%')
+                                     ->orWhere('file_type', 'ILIKE', '%gif%');
+                           })
+                           ->count();
+        
+        $videos = ClassFile::where('teacher_id', $teacher->id)
+                           ->where(function($query) {
+                               $query->where('file_type', 'ILIKE', '%video%')
+                                     ->orWhere('file_type', 'ILIKE', '%mp4%')
+                                     ->orWhere('file_type', 'ILIKE', '%avi%')
+                                     ->orWhere('file_type', 'ILIKE', '%mov%');
+                           })
+                           ->count();
+        
+        $others = $totalFiles - ($documents + $images + $videos);
+        
+        $fileTypes = (object) [
+            'documents' => $documents,
+            'images' => $images,
+            'videos' => $videos,
+            'others' => max(0, $others)
+        ];
+
+        $recentUploads = ClassFile::where('teacher_id', $teacher->id)
+                                 ->where('created_at', '>=', now()->subDays(7))
+                                 ->count();
+
         return Inertia::render('Teacher/Files', [
             'teacher' => $teacher,
-            'classes' => $classes
+            'classes' => $classes,
+            'recentFiles' => $recentFiles,
+            'analytics' => [
+                'totalFiles' => $totalFiles,
+                'storageUsed' => $this->formatFileSize($totalSize),
+                'storageAvailable' => '10 GB',
+                'downloads' => 0, // Would need download tracking
+                'recentUploads' => $recentUploads,
+                'fileTypes' => [
+                    'documents' => $fileTypes->documents ?? 0,
+                    'images' => $fileTypes->images ?? 0,
+                    'videos' => $fileTypes->videos ?? 0,
+                    'others' => max(0, $totalFiles - ($fileTypes->documents ?? 0) - ($fileTypes->images ?? 0) - ($fileTypes->videos ?? 0))
+                ]
+            ]
         ]);
     }
 

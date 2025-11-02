@@ -7,6 +7,17 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import FileUploadModal from '@/components/teacher/FileUploadModal.vue';
 
+interface FileItem {
+  id: number;
+  file_name: string;
+  file_type: string;
+  file_size_formatted: string;
+  class_name: string;
+  class_course: string;
+  created_at: string;
+  download_url: string;
+}
+
 interface Props {
   teacher: {
     id: number;
@@ -22,6 +33,20 @@ interface Props {
     course: string;
     section: string;
   }>;
+  recentFiles?: FileItem[];
+  analytics?: {
+    totalFiles: number;
+    storageUsed: string;
+    storageAvailable: string;
+    downloads: number;
+    recentUploads: number;
+    fileTypes: {
+      documents: number;
+      images: number;
+      videos: number;
+      others: number;
+    };
+  };
 }
 
 const props = defineProps<Props>();
@@ -31,27 +56,44 @@ const breadcrumbs = [
   { title: 'Files', href: '/teacher/files' }
 ];
 
-const showUnderDevelopmentAlert = () => {
-  alert('Under Development');
-};
-
 // File upload modal state
 const showUploadModal = ref(false);
+const showAllFilesModal = ref(false);
 
 // Analytics reactive data
-const analytics = ref({
-  totalFiles: 127,
-  storageUsed: '2.4 GB',
+const analytics = ref(props.analytics || {
+  totalFiles: 0,
+  storageUsed: '0 MB',
   storageAvailable: '10 GB',
-  downloads: 483,
-  recentUploads: 8,
+  downloads: 0,
+  recentUploads: 0,
   fileTypes: {
-    documents: 67,
-    images: 34,
-    videos: 12,
-    others: 14
+    documents: 0,
+    images: 0,
+    videos: 0,
+    others: 0
   }
 });
+
+// Recent files data
+const recentFiles = ref(props.recentFiles || []);
+
+// Download file function
+const downloadFile = (fileUrl: string, fileName: string) => {
+  const link = document.createElement('a');
+  link.href = fileUrl;
+  link.download = fileName;
+  link.target = '_blank';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
+// Show all files function
+const showAllFiles = () => {
+  // Use Inertia to navigate to all files page
+  window.open('/teacher/files/all', '_blank');
+};
 
 // Loading and update states
 const isUpdating = ref(false);
@@ -230,56 +272,47 @@ onUnmounted(() => {
         </CardHeader>
         <CardContent>
           <div class="space-y-4">
-            <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 dark:hover:bg-accent/10 transition-colors">
-              <div class="flex items-center gap-3">
-                <div class="text-2xl">📄</div>
-                <div>
-                  <p class="font-medium">Programming Fundamentals - Lecture 1.pdf</p>
-                  <p class="text-sm text-muted-foreground">Uploaded today at 10:30 AM • 2.3 MB</p>
+            <template v-if="recentFiles.length > 0">
+              <div v-for="file in recentFiles" :key="file.id" class="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 dark:hover:bg-accent/10 transition-colors">
+                <div class="flex items-center gap-3">
+                  <div class="text-2xl">
+                    {{ file.file_type.includes('image') ? '🖼️' : 
+                       file.file_type.includes('video') ? '🎥' : 
+                       file.file_type.includes('pdf') ? '📄' : 
+                       file.file_type.includes('doc') ? '📊' : '📄' }}
+                  </div>
+                  <div>
+                    <p class="font-medium">{{ file.file_name }}</p>
+                    <p class="text-sm text-muted-foreground">
+                      Uploaded {{ new Date(file.created_at).toLocaleDateString() }} • {{ file.file_size_formatted }}
+                    </p>
+                  </div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <Badge variant="secondary">{{ file.class_name }}</Badge>
+                  <button 
+                    type="button" 
+                    class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium h-8 px-3 border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground" 
+                    @click="downloadFile(file.download_url, file.file_name)"
+                  >
+                    Download
+                  </button>
                 </div>
               </div>
-              <div class="flex items-center gap-2">
-                <Badge variant="secondary">BSCS-A</Badge>
-                <button type="button" class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium h-8 px-3 border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground" @click="showUnderDevelopmentAlert">
-                  Download
-                </button>
-              </div>
+            </template>
+            
+            <div v-else class="text-center py-8 text-muted-foreground">
+              <div class="text-4xl mb-2">�</div>
+              <p class="font-medium">No files uploaded yet</p>
+              <p class="text-sm">Upload your first file to get started</p>
             </div>
 
-            <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 dark:hover:bg-accent/10 transition-colors">
-              <div class="flex items-center gap-3">
-                <div class="text-2xl">📊</div>
-                <div>
-                  <p class="font-medium">Data Structures Assignment.docx</p>
-                  <p class="text-sm text-muted-foreground">Uploaded yesterday at 3:45 PM • 1.8 MB</p>
-                </div>
-              </div>
-              <div class="flex items-center gap-2">
-                <Badge variant="secondary">BSCS-B</Badge>
-                <button type="button" class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium h-8 px-3 border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground" @click="showUnderDevelopmentAlert">
-                  Download
-                </button>
-              </div>
-            </div>
-
-            <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 dark:hover:bg-accent/10 transition-colors">
-              <div class="flex items-center gap-3">
-                <div class="text-2xl">🖼️</div>
-                <div>
-                  <p class="font-medium">Algorithm Flowchart.png</p>
-                  <p class="text-sm text-muted-foreground">Uploaded 2 days ago • 856 KB</p>
-                </div>
-              </div>
-              <div class="flex items-center gap-2">
-                <Badge variant="secondary">BSCS-A</Badge>
-                <button type="button" class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium h-8 px-3 border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground" @click="showUnderDevelopmentAlert">
-                  Download
-                </button>
-              </div>
-            </div>
-
-            <div class="text-center py-4">
-              <button type="button" class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium h-8 px-3 border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground" @click="showUnderDevelopmentAlert">
+            <div class="text-center py-4" v-if="recentFiles.length > 0">
+              <button 
+                type="button" 
+                class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium h-8 px-3 border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground" 
+                @click="showAllFiles"
+              >
                 View All Files
               </button>
             </div>
