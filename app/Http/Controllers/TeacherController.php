@@ -1076,6 +1076,25 @@ class TeacherController extends Controller
             'all_input' => $request->all()
         ]);
 
+        // Convert string booleans to actual booleans for proper validation
+        if ($request->has('allow_download')) {
+            $allowDownload = $request->input('allow_download');
+            if ($allowDownload === 'true' || $allowDownload === '1') {
+                $request->merge(['allow_download' => true]);
+            } elseif ($allowDownload === 'false' || $allowDownload === '0') {
+                $request->merge(['allow_download' => false]);
+            }
+        }
+
+        if ($request->has('notify_students')) {
+            $notifyStudents = $request->input('notify_students');
+            if ($notifyStudents === 'true' || $notifyStudents === '1') {
+                $request->merge(['notify_students' => true]);
+            } elseif ($notifyStudents === 'false' || $notifyStudents === '0') {
+                $request->merge(['notify_students' => false]);
+            }
+        }
+
         $request->validate([
             'files' => 'required|array',
             'files.*' => 'required|file|max:10240', // 10MB max per file
