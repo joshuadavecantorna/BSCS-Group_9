@@ -3372,4 +3372,27 @@ class TeacherController extends Controller
 
         return redirect()->back()->with('success', 'Excuse request rejected.');
     }
+
+    /**
+     * Download attachment for an excuse request
+     */
+    public function downloadExcuseAttachment($requestId)
+    {
+        $teacher = $this->getCurrentTeacher();
+
+        $excuseRequest = ExcuseRequest::with(['attendanceSession.class'])
+            ->whereHas('attendanceSession.class', function($query) use ($teacher) {
+                $query->where('teacher_id', $teacher->user_id);
+            })
+            ->whereNotNull('attachment_path')
+            ->findOrFail($requestId);
+
+        $filePath = storage_path('app/public/' . $excuseRequest->attachment_path);
+
+        if (!file_exists($filePath)) {
+            abort(404, 'Attachment not found');
+        }
+
+        return response()->download($filePath, basename($excuseRequest->attachment_path));
+    }
 }

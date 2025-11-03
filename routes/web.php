@@ -78,6 +78,7 @@ Route::middleware(['auth', 'verified'])->prefix('teacher')->name('teacher.')->gr
     // Excuse Request Management
     Route::post('/excuse-requests/{requestId}/approve', [App\Http\Controllers\TeacherController::class, 'approveExcuseRequest'])->name('excuse-requests.approve');
     Route::post('/excuse-requests/{requestId}/reject', [App\Http\Controllers\TeacherController::class, 'rejectExcuseRequest'])->name('excuse-requests.reject');
+    Route::get('/excuse-requests/{requestId}/download-attachment', [App\Http\Controllers\TeacherController::class, 'downloadExcuseAttachment'])->name('excuse-requests.download-attachment');
 });
 
 // API routes for student lookup

@@ -272,7 +272,54 @@ const formatFileSize = (bytes: number) => {
 }
 
 const uploadFile = async () => {
-  alert('Under Development');
+  if (!selectedClass.value || selectedFiles.value.length === 0) {
+    errorMessage.value = 'Please select a class and at least one file.';
+    return;
+  }
+
+  isUploading.value = true;
+  uploadProgress.value = 0;
+  errorMessage.value = '';
+
+  try {
+    const formData = new FormData();
+
+    // Add files
+    selectedFiles.value.forEach((file, index) => {
+      formData.append('files[]', file);
+    });
+
+    // Add other data
+    formData.append('class_id', selectedClass.value);
+    formData.append('description', description.value);
+    formData.append('allow_download', allowDownload.value.toString());
+    formData.append('notify_students', notifyStudents.value.toString());
+
+    const response = await router.post('/teacher/files/upload', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+      onUploadProgress: (progressEvent) => {
+        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        uploadProgress.value = percentCompleted;
+      }
+    });
+
+    if (response.data.success) {
+      emit('file-uploaded', response.data.files);
+      open.value = false;
+      // Reset form
+      resetForm();
+    } else {
+      errorMessage.value = response.data.message || 'Upload failed.';
+    }
+  } catch (error) {
+    console.error('Upload error:', error);
+    errorMessage.value = error.response?.data?.message || 'An error occurred during upload.';
+  } finally {
+    isUploading.value = false;
+    uploadProgress.value = 0;
+  }
 };
 
 const resetForm = () => {

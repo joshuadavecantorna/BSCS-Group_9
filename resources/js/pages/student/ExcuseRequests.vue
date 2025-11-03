@@ -266,10 +266,7 @@ const submitExcuseRequest = () => {
 
               <!-- Review Info -->
               <div v-if="request.status !== 'pending'" class="border-t pt-4 mt-4 grid gap-3 md:grid-cols-2">
-                <div>
-                  <p class="text-sm font-medium text-muted-foreground">Reviewed By</p>
-                  <p class="text-sm">{{ request.reviewer ? request.reviewer.name : 'N/A' }}</p>
-                </div>
+
                 <div>
                   <p class="text-sm font-medium text-muted-foreground">Reviewed On</p>
                   <p class="text-sm">{{ request.reviewed_at ? new Date(request.reviewed_at).toLocaleString() : 'N/A' }}</p>
