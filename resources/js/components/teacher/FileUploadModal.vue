@@ -285,7 +285,7 @@ const uploadFile = async () => {
     const formData = new FormData();
 
     // Add files
-    selectedFiles.value.forEach((file, index) => {
+    selectedFiles.value.forEach((file) => {
       formData.append('files[]', file);
     });
 
@@ -295,30 +295,56 @@ const uploadFile = async () => {
     formData.append('allow_download', allowDownload.value.toString());
     formData.append('notify_students', notifyStudents.value.toString());
 
-    const response = await router.post('/teacher/files/upload', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-      onUploadProgress: (progressEvent) => {
-        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+    // Get CSRF token
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+
+    // Use XMLHttpRequest for better upload progress tracking
+    const xhr = new XMLHttpRequest();
+    
+    xhr.upload.addEventListener('progress', (event) => {
+      if (event.lengthComputable) {
+        const percentCompleted = Math.round((event.loaded * 100) / event.total);
         uploadProgress.value = percentCompleted;
       }
     });
 
-    if (response.data.success) {
-      emit('file-uploaded', response.data.files);
-      open.value = false;
-      // Reset form
-      resetForm();
-    } else {
-      errorMessage.value = response.data.message || 'Upload failed.';
-    }
+    xhr.addEventListener('load', () => {
+      uploadProgress.value = 100;
+      
+      if (xhr.status === 200) {
+        const response = JSON.parse(xhr.responseText);
+        if (response.success) {
+          emit('file-uploaded', response.files);
+          open.value = false;
+          resetForm();
+        } else {
+          errorMessage.value = response.message || 'Upload failed.';
+        }
+      } else {
+        const errorResponse = JSON.parse(xhr.responseText);
+        errorMessage.value = errorResponse.message || 'Upload failed.';
+      }
+    });
+
+    xhr.addEventListener('error', () => {
+      errorMessage.value = 'Upload failed. Please try again.';
+    });
+
+    xhr.open('POST', '/teacher/files/upload');
+    xhr.setRequestHeader('X-CSRF-TOKEN', csrfToken || '');
+    xhr.setRequestHeader('Accept', 'application/json');
+    xhr.send(formData);
+
   } catch (error) {
     console.error('Upload error:', error);
-    errorMessage.value = error.response?.data?.message || 'An error occurred during upload.';
+    errorMessage.value = 'An error occurred during upload.';
   } finally {
-    isUploading.value = false;
-    uploadProgress.value = 0;
+    setTimeout(() => {
+      isUploading.value = false;
+      if (!open.value) {
+        uploadProgress.value = 0;
+      }
+    }, 1000);
   }
 };
 

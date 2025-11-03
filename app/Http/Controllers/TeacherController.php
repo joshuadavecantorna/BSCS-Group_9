@@ -1318,10 +1318,9 @@ class TeacherController extends Controller
                           ->map(function ($file) {
                               return [
                                   'id' => $file->id,
-                                  'file_name' => $file->file_name,
-                                  'original_name' => $file->original_name ?? $file->file_name,
+                                  'file_name' => $file->original_name ?? $file->file_name,
                                   'file_type' => $file->file_type,
-                                  'file_size' => $file->file_size_formatted,
+                                  'file_size_formatted' => $file->file_size_formatted,
                                   'class_name' => $file->class->name ?? 'Unknown',
                                   'class_course' => $file->class->course ?? '',
                                   'created_at' => $file->created_at,
@@ -1331,7 +1330,7 @@ class TeacherController extends Controller
 
         return response()->json([
             'success' => true,
-            'files' => $files
+            'recentFiles' => $files
         ]);
     }
 
@@ -3311,21 +3310,57 @@ class TeacherController extends Controller
     /**
      * Show excuse requests page for teachers
      */
-    public function excuseRequests(): Response
+    public function excuseRequests(Request $request)
     {
         $teacher = $this->getCurrentTeacher();
 
-        // Get excuse requests for classes taught by this teacher
-        $requests = ExcuseRequest::with(['student', 'attendanceSession.class'])
-            ->whereHas('attendanceSession.class', function($query) use ($teacher) {
-                $query->where('teacher_id', $teacher->user_id);
-            })
-            ->orderBy('created_at', 'desc')
-            ->paginate(20);
+        // Build the query for excuse requests
+        $query = ExcuseRequest::with(['student', 'attendanceSession.class'])
+            ->whereHas('attendanceSession.class', function($q) use ($teacher) {
+                $q->where('teacher_id', $teacher->user_id);
+            });
+
+        // Apply filters
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+
+        if ($request->filled('class_id')) {
+            $query->whereHas('attendanceSession.class', function($q) use ($request) {
+                $q->where('id', $request->class_id);
+            });
+        }
+
+        if ($request->filled('search')) {
+            $searchTerm = $request->search;
+            $query->whereHas('student', function($q) use ($searchTerm) {
+                $q->where('name', 'ILIKE', "%{$searchTerm}%")
+                  ->orWhere('student_id', 'ILIKE', "%{$searchTerm}%");
+            });
+        }
+
+        $requests = $query->orderBy('created_at', 'desc')->paginate(20);
+
+        // Get teacher's classes for the filter dropdown
+        $classes = DB::table('class_models')
+                     ->where('teacher_id', $teacher->user_id)
+                     ->whereRaw('COALESCE(is_active, true) = true')
+                     ->select('id', 'name', 'course', 'section')
+                     ->get();
+
+        // If this is an AJAX request (from the filter), return JSON
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'requests' => $requests,
+                'classes' => $classes
+            ]);
+        }
 
         return Inertia::render('Teacher/ExcuseRequests', [
             'teacher' => $teacher,
             'requests' => $requests,
+            'classes' => $classes,
         ]);
     }
 
@@ -3378,21 +3413,35 @@ class TeacherController extends Controller
      */
     public function downloadExcuseAttachment($requestId)
     {
-        $teacher = $this->getCurrentTeacher();
+        try {
+            $teacher = $this->getCurrentTeacher();
 
-        $excuseRequest = ExcuseRequest::with(['attendanceSession.class'])
-            ->whereHas('attendanceSession.class', function($query) use ($teacher) {
-                $query->where('teacher_id', $teacher->user_id);
-            })
-            ->whereNotNull('attachment_path')
-            ->findOrFail($requestId);
+            $excuseRequest = ExcuseRequest::with(['attendanceSession.class'])
+                ->whereHas('attendanceSession.class', function($query) use ($teacher) {
+                    $query->where('teacher_id', $teacher->user_id);
+                })
+                ->whereNotNull('attachment_path')
+                ->findOrFail($requestId);
 
-        $filePath = storage_path('app/public/' . $excuseRequest->attachment_path);
+            $filePath = storage_path('app/public/' . $excuseRequest->attachment_path);
 
-        if (!file_exists($filePath)) {
-            abort(404, 'Attachment not found');
+            if (!file_exists($filePath)) {
+                Log::error('Attachment file not found', [
+                    'request_id' => $requestId,
+                    'file_path' => $filePath,
+                    'attachment_path' => $excuseRequest->attachment_path
+                ]);
+                abort(404, 'Attachment not found');
+            }
+
+            return response()->download($filePath, basename($excuseRequest->attachment_path));
+        } catch (\Exception $e) {
+            Log::error('Error downloading attachment', [
+                'request_id' => $requestId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            abort(500, 'Error downloading attachment');
         }
-
-        return response()->download($filePath, basename($excuseRequest->attachment_path));
     }
 }

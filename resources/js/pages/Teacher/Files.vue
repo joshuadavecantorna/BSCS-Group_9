@@ -22,18 +22,51 @@ interface Props {
     course: string;
     section: string;
   }>;
+  recentFiles?: Array<{
+    id: number;
+    file_name: string;
+    file_type: string;
+    file_size_formatted: string;
+    class_name: string;
+    class_course: string;
+    created_at: string;
+    download_url: string;
+  }>;
+  analytics?: {
+    totalFiles: number;
+    storageUsed: string;
+    storageAvailable: string;
+    downloads: number;
+    recentUploads: number;
+    fileTypes: {
+      documents: number;
+      images: number;
+      videos: number;
+      others: number;
+    };
+  };
 }
 
 const props = defineProps<Props>();
+
+// Destructure props for easier access
+const { teacher, classes } = props;
+
+// Reactive data for real-time updates
+const currentRecentFiles = ref(props.recentFiles || []);
+const currentAnalytics = ref(props.analytics || {
+  totalFiles: 0,
+  storageUsed: '0 B',
+  storageAvailable: '10 GB',
+  downloads: 0,
+  recentUploads: 0,
+  fileTypes: { documents: 0, images: 0, videos: 0, others: 0 }
+});
 
 const breadcrumbs = [
   { title: 'Teacher Dashboard', href: '/teacher/dashboard' },
   { title: 'Files', href: '/teacher/files' }
 ];
-
-const showUnderDevelopmentAlert = () => {
-  alert('Under Development');
-};
 
 // File upload modal state
 const showUploadModal = ref(false);
@@ -42,10 +75,87 @@ const openUploadModal = () => {
   showUploadModal.value = true;
 };
 
-const handleFileUploaded = (response: any) => {
+const handleFileUploaded = async (response: any) => {
   console.log('File uploaded successfully:', response);
   showUploadModal.value = false;
-  // Optionally reload the page or update the file list
+  
+  // Update analytics in real-time without page reload
+  await refreshAnalytics();
+  await refreshRecentFiles();
+};
+
+// Helper functions
+const getFileIcon = (fileType: string) => {
+  if (fileType.includes('image')) return '🖼️';
+  if (fileType.includes('video')) return '🎥';
+  if (fileType.includes('pdf')) return '📄';
+  if (fileType.includes('doc') || fileType.includes('word')) return '📊';
+  if (fileType.includes('text')) return '📝';
+  if (fileType.includes('spreadsheet') || fileType.includes('excel')) return '📊';
+  if (fileType.includes('presentation') || fileType.includes('powerpoint')) return '📊';
+  return '📄';
+};
+
+const formatDate = (dateString: string) => {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffInHours = Math.abs(now.getTime() - date.getTime()) / (1000 * 60 * 60);
+  
+  if (diffInHours < 24) {
+    return `Today at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  } else if (diffInHours < 48) {
+    return `Yesterday at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  } else {
+    return date.toLocaleDateString();
+  }
+};
+
+const downloadFile = (downloadUrl: string, fileName: string) => {
+  const link = document.createElement('a');
+  link.href = downloadUrl;
+  link.download = fileName;
+  link.target = '_blank';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
+const viewAllFiles = () => {
+  window.location.href = '/teacher/files/all';
+};
+
+// Real-time data refresh functions
+const refreshAnalytics = async () => {
+  try {
+    const response = await fetch('/teacher/files/analytics');
+    const data = await response.json();
+    
+    if (data.success) {
+      currentAnalytics.value = {
+        totalFiles: data.total_files,
+        storageUsed: data.storage_used,
+        storageAvailable: data.storage_available,
+        downloads: data.downloads,
+        recentUploads: data.recent_uploads,
+        fileTypes: data.file_types
+      };
+    }
+  } catch (error) {
+    console.error('Failed to refresh analytics:', error);
+  }
+};
+
+const refreshRecentFiles = async () => {
+  try {
+    const response = await fetch('/teacher/files/recent');
+    const data = await response.json();
+    
+    if (data.success) {
+      currentRecentFiles.value = data.recentFiles;
+    }
+  } catch (error) {
+    console.error('Failed to refresh recent files:', error);
+  }
 };
 </script>
 
@@ -113,50 +223,37 @@ const handleFileUploaded = (response: any) => {
         </CardHeader>
         <CardContent>
           <div class="space-y-4">
-            <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50">
-              <div class="flex items-center gap-3">
-                <div class="text-2xl">📄</div>
-                <div>
-                  <p class="font-medium">Programming Fundamentals - Lecture 1.pdf</p>
-                  <p class="text-sm text-muted-foreground">Uploaded today at 10:30 AM • 2.3 MB</p>
+            <template v-if="currentRecentFiles && currentRecentFiles.length > 0">
+              <div v-for="file in currentRecentFiles" :key="file.id" 
+                   class="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50">
+                <div class="flex items-center gap-3">
+                  <div class="text-2xl">{{ getFileIcon(file.file_type) }}</div>
+                  <div>
+                    <p class="font-medium">{{ file.file_name }}</p>
+                    <p class="text-sm text-muted-foreground">
+                      {{ formatDate(file.created_at) }} • {{ file.file_size_formatted }}
+                    </p>
+                  </div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <Badge variant="secondary">{{ file.class_name }}</Badge>
+                  <Button size="sm" variant="outline" @click="downloadFile(file.download_url, file.file_name)">
+                    Download
+                  </Button>
                 </div>
               </div>
-              <div class="flex items-center gap-2">
-                <Badge variant="secondary">BSCS-A</Badge>
-                <Button size="sm" variant="outline">Download</Button>
-              </div>
+            </template>
+            
+            <div v-else class="text-center py-8">
+              <div class="text-6xl mb-4">�</div>
+              <p class="text-muted-foreground mb-4">No files uploaded yet</p>
+              <Button @click="openUploadModal">
+                Upload Your First File
+              </Button>
             </div>
 
-            <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50">
-              <div class="flex items-center gap-3">
-                <div class="text-2xl">📊</div>
-                <div>
-                  <p class="font-medium">Data Structures Assignment.docx</p>
-                  <p class="text-sm text-muted-foreground">Uploaded yesterday at 3:45 PM • 1.8 MB</p>
-                </div>
-              </div>
-              <div class="flex items-center gap-2">
-                <Badge variant="secondary">BSCS-B</Badge>
-                <Button size="sm" variant="outline">Download</Button>
-              </div>
-            </div>
-
-            <div class="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50">
-              <div class="flex items-center gap-3">
-                <div class="text-2xl">🖼️</div>
-                <div>
-                  <p class="font-medium">Algorithm Flowchart.png</p>
-                  <p class="text-sm text-muted-foreground">Uploaded 2 days ago • 856 KB</p>
-                </div>
-              </div>
-              <div class="flex items-center gap-2">
-                <Badge variant="secondary">BSCS-A</Badge>
-                <Button size="sm" variant="outline">Download</Button>
-              </div>
-            </div>
-
-            <div class="text-center py-4">
-              <Button variant="outline" @click="showUnderDevelopmentAlert">
+            <div class="text-center py-4" v-if="currentRecentFiles && currentRecentFiles.length > 0">
+              <Button variant="outline" @click="viewAllFiles">
                 View All Files
               </Button>
             </div>
@@ -172,7 +269,7 @@ const handleFileUploaded = (response: any) => {
             <span class="text-xl">📁</span>
           </CardHeader>
           <CardContent>
-            <div class="text-2xl font-bold">127</div>
+            <div class="text-2xl font-bold">{{ currentAnalytics?.totalFiles || 0 }}</div>
             <p class="text-xs text-muted-foreground mt-1">
               Across all classes
             </p>
@@ -185,9 +282,9 @@ const handleFileUploaded = (response: any) => {
             <span class="text-xl">💾</span>
           </CardHeader>
           <CardContent>
-            <div class="text-2xl font-bold">2.4 GB</div>
+            <div class="text-2xl font-bold">{{ currentAnalytics?.storageUsed || '0 B' }}</div>
             <p class="text-xs text-muted-foreground mt-1">
-              Of 10 GB available
+              Of {{ currentAnalytics?.storageAvailable || '10 GB' }} available
             </p>
           </CardContent>
         </Card>
@@ -198,7 +295,7 @@ const handleFileUploaded = (response: any) => {
             <span class="text-xl">⬇️</span>
           </CardHeader>
           <CardContent>
-            <div class="text-2xl font-bold">483</div>
+            <div class="text-2xl font-bold">{{ currentAnalytics?.downloads || 0 }}</div>
             <p class="text-xs text-muted-foreground mt-1">
               This month
             </p>
@@ -211,7 +308,7 @@ const handleFileUploaded = (response: any) => {
             <span class="text-xl">📤</span>
           </CardHeader>
           <CardContent>
-            <div class="text-2xl font-bold">8</div>
+            <div class="text-2xl font-bold">{{ currentAnalytics?.recentUploads || 0 }}</div>
             <p class="text-xs text-muted-foreground mt-1">
               This week
             </p>
@@ -230,28 +327,28 @@ const handleFileUploaded = (response: any) => {
             <div class="text-center p-4 border rounded-lg">
               <div class="text-3xl mb-2">📄</div>
               <p class="font-semibold">Documents</p>
-              <p class="text-2xl font-bold text-blue-600">67</p>
+              <p class="text-2xl font-bold text-blue-600">{{ currentAnalytics?.fileTypes?.documents || 0 }}</p>
               <p class="text-xs text-muted-foreground">PDF, DOC, PPT</p>
             </div>
             
             <div class="text-center p-4 border rounded-lg">
               <div class="text-3xl mb-2">🖼️</div>
               <p class="font-semibold">Images</p>
-              <p class="text-2xl font-bold text-green-600">34</p>
+              <p class="text-2xl font-bold text-green-600">{{ currentAnalytics?.fileTypes?.images || 0 }}</p>
               <p class="text-xs text-muted-foreground">PNG, JPG, SVG</p>
             </div>
             
             <div class="text-center p-4 border rounded-lg">
               <div class="text-3xl mb-2">🎥</div>
               <p class="font-semibold">Videos</p>
-              <p class="text-2xl font-bold text-purple-600">12</p>
+              <p class="text-2xl font-bold text-purple-600">{{ currentAnalytics?.fileTypes?.videos || 0 }}</p>
               <p class="text-xs text-muted-foreground">MP4, AVI, MOV</p>
             </div>
             
             <div class="text-center p-4 border rounded-lg">
               <div class="text-3xl mb-2">📊</div>
               <p class="font-semibold">Others</p>
-              <p class="text-2xl font-bold text-orange-600">14</p>
+              <p class="text-2xl font-bold text-orange-600">{{ currentAnalytics?.fileTypes?.others || 0 }}</p>
               <p class="text-xs text-muted-foreground">ZIP, RAR, etc</p>
             </div>
           </div>
