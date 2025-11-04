@@ -60,16 +60,32 @@
         <div v-if="selectedFiles.length > 0" class="space-y-2">
           <Label>Selected Files ({{ selectedFiles.length }})</Label>
           <div class="max-h-40 overflow-y-auto space-y-2">
-            <div v-for="(file, index) in selectedFiles" :key="index"
+            <div v-for="(fileObj, index) in selectedFiles" :key="index"
                  class="flex items-center justify-between p-2 bg-gray-50 rounded">
               <div class="flex items-center space-x-2 flex-1 min-w-0">
-                <component :is="getFileIcon(file.name)" class="h-4 w-4 text-gray-500 flex-shrink-0" />
+                <component :is="getFileIcon(fileObj.file.name)" class="h-4 w-4 text-gray-500 flex-shrink-0" />
                 <div class="min-w-0 flex-1">
-                  <p class="text-sm font-medium truncate">{{ file.name }}</p>
-                  <p class="text-xs text-gray-500">{{ formatFileSize(file.size) }}</p>
+                  <p class="text-sm font-medium truncate">{{ fileObj.file.name }}</p>
+                  <p class="text-xs text-gray-500">{{ formatFileSize(fileObj.file.size) }}</p>
+                  <!-- Individual file progress bar -->
+                  <div v-if="isUploading && fileObj.uploadStatus === 'uploading'" class="mt-1">
+                    <div class="w-full bg-gray-200 rounded-full h-1.5">
+                      <div
+                        class="bg-blue-600 h-1.5 rounded-full transition-all duration-300"
+                        :style="{ width: `${fileObj.progress || 0}%` }"
+                      ></div>
+                    </div>
+                    <p class="text-xs text-blue-600 mt-0.5">{{ fileObj.progress || 0 }}% uploaded</p>
+                  </div>
+                  <!-- File status -->
+                  <div v-if="fileObj.uploadStatus" class="mt-1">
+                    <p v-if="fileObj.uploadStatus === 'completed'" class="text-xs text-green-600">✓ Uploaded successfully</p>
+                    <p v-else-if="fileObj.uploadStatus === 'failed'" class="text-xs text-red-600">✗ Upload failed</p>
+                    <p v-else-if="fileObj.uploadStatus === 'uploading'" class="text-xs text-blue-600">Uploading...</p>
+                  </div>
                 </div>
               </div>
-              <Button size="sm" variant="ghost" @click="removeFile(index)">
+              <Button size="sm" variant="ghost" @click="removeFile(index)" :disabled="isUploading">
                 <X class="h-3 w-3" />
               </Button>
             </div>
@@ -183,7 +199,7 @@ const fileInput = ref<HTMLInputElement>()
 
 // State
 const selectedClass = ref('')
-const selectedFiles = ref<File[]>([])
+const selectedFiles = ref<Array<{ file: File; progress: number; uploadStatus?: string; error?: string }>>([])
 const description = ref('')
 const allowDownload = ref(true)
 const notifyStudents = ref(true)
@@ -229,7 +245,15 @@ const addFiles = (files: File[]) => {
     return true
   })
 
-  selectedFiles.value = [...selectedFiles.value, ...validFiles]
+  // Add progress and status properties to each file
+  const filesWithProgress = validFiles.map(file => ({
+    file,
+    progress: 0,
+    uploadStatus: undefined,
+    error: undefined
+  }))
+
+  selectedFiles.value = [...selectedFiles.value, ...filesWithProgress]
   errorMessage.value = ''
 }
 
@@ -281,71 +305,114 @@ const uploadFile = async () => {
   uploadProgress.value = 0;
   errorMessage.value = '';
 
-  try {
-    const formData = new FormData();
+  // Reset all files to initial state
+  selectedFiles.value.forEach(fileObj => {
+    fileObj.progress = 0;
+    fileObj.uploadStatus = 'pending';
+    fileObj.error = undefined;
+  });
 
-    // Add files
-    selectedFiles.value.forEach((file) => {
-      formData.append('files[]', file);
-    });
+  const uploadedFiles: any[] = [];
+  const failedFiles: string[] = [];
 
-    // Add other data
-    formData.append('class_id', selectedClass.value);
-    formData.append('description', description.value);
-    formData.append('allow_download', allowDownload.value.toString());
-    formData.append('notify_students', notifyStudents.value.toString());
+  // Upload files sequentially
+  for (let i = 0; i < selectedFiles.value.length; i++) {
+    const fileObj = selectedFiles.value[i];
 
-    // Get CSRF token
-    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+    try {
+      fileObj.uploadStatus = 'uploading';
 
-    // Use XMLHttpRequest for better upload progress tracking
-    const xhr = new XMLHttpRequest();
-    
-    xhr.upload.addEventListener('progress', (event) => {
-      if (event.lengthComputable) {
-        const percentCompleted = Math.round((event.loaded * 100) / event.total);
-        uploadProgress.value = percentCompleted;
-      }
-    });
+      const formData = new FormData();
+      formData.append('files[]', fileObj.file);
+      formData.append('class_id', selectedClass.value);
+      formData.append('description', description.value);
+      formData.append('allow_download', allowDownload.value.toString());
+      formData.append('notify_students', notifyStudents.value.toString());
 
-    xhr.addEventListener('load', () => {
-      uploadProgress.value = 100;
-      
-      if (xhr.status === 200) {
-        const response = JSON.parse(xhr.responseText);
-        if (response.success) {
-          emit('file-uploaded', response.files);
-          open.value = false;
-          resetForm();
-        } else {
-          errorMessage.value = response.message || 'Upload failed.';
-        }
+      // Get CSRF token
+      const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+
+      // Upload single file with progress tracking
+      const response = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+
+        xhr.upload.addEventListener('progress', (event) => {
+          if (event.lengthComputable) {
+            const percentCompleted = Math.round((event.loaded * 100) / event.total);
+            fileObj.progress = percentCompleted;
+          }
+        });
+
+        xhr.addEventListener('load', () => {
+          if (xhr.status === 200) {
+            try {
+              const response = JSON.parse(xhr.responseText);
+              resolve(response);
+            } catch (e) {
+              reject(new Error('Invalid response format'));
+            }
+          } else {
+            try {
+              const errorResponse = JSON.parse(xhr.responseText);
+              reject(new Error(errorResponse.message || 'Upload failed'));
+            } catch (e) {
+              reject(new Error('Upload failed'));
+            }
+          }
+        });
+
+        xhr.addEventListener('error', () => {
+          reject(new Error('Network error during upload'));
+        });
+
+        xhr.open('POST', '/teacher/files/upload');
+        xhr.setRequestHeader('X-CSRF-TOKEN', csrfToken || '');
+        xhr.setRequestHeader('Accept', 'application/json');
+        xhr.send(formData);
+      });
+
+      // Handle successful upload
+      if ((response as any).success) {
+        fileObj.uploadStatus = 'completed';
+        uploadedFiles.push(...(response as any).files);
       } else {
-        const errorResponse = JSON.parse(xhr.responseText);
-        errorMessage.value = errorResponse.message || 'Upload failed.';
+        throw new Error((response as any).message || 'Upload failed');
       }
-    });
 
-    xhr.addEventListener('error', () => {
-      errorMessage.value = 'Upload failed. Please try again.';
-    });
-
-    xhr.open('POST', '/teacher/files/upload');
-    xhr.setRequestHeader('X-CSRF-TOKEN', csrfToken || '');
-    xhr.setRequestHeader('Accept', 'application/json');
-    xhr.send(formData);
-
-  } catch (error) {
-    console.error('Upload error:', error);
-    errorMessage.value = 'An error occurred during upload.';
-  } finally {
-    setTimeout(() => {
-      isUploading.value = false;
-      if (!open.value) {
-        uploadProgress.value = 0;
-      }
-    }, 1000);
+    } catch (error) {
+      fileObj.uploadStatus = 'failed';
+      fileObj.error = (error as Error).message;
+      failedFiles.push(fileObj.file.name);
+      console.error(`Upload failed for ${fileObj.file.name}:`, error);
+    }
   }
+
+  // Update overall progress
+  uploadProgress.value = 100;
+
+  // Handle results
+  if (uploadedFiles.length > 0) {
+    emit('file-uploaded', uploadedFiles);
+
+    if (failedFiles.length === 0) {
+      // All files uploaded successfully
+      open.value = false;
+      resetForm();
+    } else {
+      // Some files failed
+      errorMessage.value = `${uploadedFiles.length} file(s) uploaded successfully. ${failedFiles.length} file(s) failed: ${failedFiles.join(', ')}`;
+    }
+  } else {
+    // All files failed
+    errorMessage.value = 'All file uploads failed. Please try again.';
+  }
+
+  setTimeout(() => {
+    isUploading.value = false;
+    if (!open.value) {
+      uploadProgress.value = 0;
+    }
+  }, 1000);
 };
 
 const resetForm = () => {

@@ -71,7 +71,7 @@ class TeacherController extends Controller
     public function classes()
     {
         $teacher = $this->getCurrentTeacher();
-        
+
         // Get classes directly from database with real-time student count
         $classes = DB::table('class_models')
                      ->where('teacher_id', $teacher->user_id)
@@ -81,7 +81,7 @@ class TeacherController extends Controller
                          $studentCount = DB::table('class_student')
                                           ->where('class_model_id', $class->id)
                                           ->count();
-                         
+
                          return [
                              'id' => $class->id,
                              'name' => $class->name,
@@ -1071,7 +1071,8 @@ class TeacherController extends Controller
     {
         // Log the incoming request for debugging
         Log::info('Upload request received', [
-            'files_count' => $request->hasFile('files') ? count($request->file('files')) : 0,
+            'files_count' => $request->hasFile('files') ? count($request->file('files')) : ($request->hasFile('files[]') ? count($request->file('files[]')) : 0),
+            'single_file' => $request->hasFile('files') && !is_array($request->file('files')),
             'class_id' => $request->input('class_id'),
             'all_input' => $request->all()
         ]);
@@ -1095,26 +1096,44 @@ class TeacherController extends Controller
             }
         }
 
-        $request->validate([
-            'files' => 'required|array',
-            'files.*' => 'required|file|max:10240', // 10MB max per file
-            'class_id' => 'required|exists:class_models,id',
-            'description' => 'nullable|string|max:500',
-            'allow_download' => 'nullable|boolean',
-            'notify_students' => 'nullable|boolean'
-        ]);
+        // Handle both single file and multiple files
+        $files = [];
+        if ($request->hasFile('files') && !is_array($request->file('files'))) {
+            // Single file upload
+            $files = [$request->file('files')];
+            $request->validate([
+                'files' => 'required|file|max:10240', // 10MB max per file
+                'class_id' => 'required|exists:class_models,id',
+                'description' => 'nullable|string|max:500',
+                'allow_download' => 'nullable|boolean',
+                'notify_students' => 'nullable|boolean'
+            ]);
+        } else {
+            // Multiple files upload
+            $files = $request->file('files', []);
+            $request->validate([
+                'files' => 'required|array',
+                'files.*' => 'required|file|max:10240', // 10MB max per file
+                'class_id' => 'required|exists:class_models,id',
+                'description' => 'nullable|string|max:500',
+                'allow_download' => 'nullable|boolean',
+                'notify_students' => 'nullable|boolean'
+            ]);
+        }
 
         $teacher = $this->getCurrentTeacher();
-        
+
         // Get class_id from request body
         $classId = $request->input('class_id');
 
         $class = ClassModel::forTeacher($teacher->user_id)->findOrFail($classId);
 
         $uploadedFiles = [];
-        
+
         // Process each file
-        foreach ($request->file('files') as $file) {
+        foreach ($files as $file) {
+            if (!$file) continue;
+
             $fileName = time() . '_' . uniqid() . '_' . $file->getClientOriginalName();
             $filePath = $file->storeAs('class-files/' . $classId, $fileName, 'public');
 
@@ -1130,7 +1149,7 @@ class TeacherController extends Controller
                 'visibility' => $request->boolean('allow_download', true) ? 'public' : 'private',
                 'is_active' => true
             ]);
-            
+
             $uploadedFiles[] = $classFile;
         }
 

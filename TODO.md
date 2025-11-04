@@ -1,24 +1,21 @@
-# Excuse Request Approval/Rejection Implementation
+# File Upload Debugging and Implementation Progress
 
 ## Tasks
-- [x] Add approve() and reject() methods to ExcuseRequest model
-- [x] Add controller methods for teachers/admins to approve/reject requests in TeacherController
-- [x] Add routes for approval/rejection actions in routes/web.php
-- [x] Create teacher/admin view for managing excuse requests (Vue component)
-- [x] Update frontend components as needed
-- [x] Test approval/rejection functionality
-- [x] Ensure proper authorization
-- [x] Fix color contrast in excuse request status badges for better readability
-- [x] Add dark mode support to excuse request status badges
-- [x] Add functionality for teachers to view/download supporting documents from excuse requests
 
-## Progress
-- [x] Analyze existing codebase
-- [x] Create implementation plan
-- [x] Get user approval
-- [x] Implement approve/reject modal functionality in Vue component
-- [x] Add reviewed_at timestamp display
-- [x] Improve error handling and user feedback
-- [x] Update status badge colors for better contrast and dark mode support
-- [x] Add route and controller method for downloading attachments
-- [x] Update Vue component to include download button for attachments
+* [x] Verify that the `/teacher/files/upload` route exists and uses the POST method
+* [x] Add `<meta name="csrf-token" content="{{ csrf_token() }}">` to the Blade layout
+* [x] Confirm that Vue reads the CSRF token correctly from the meta tag
+* [x] Match form data keys (`files[]`, `class_id`, `description`) with Laravel request inputs
+* [x] Implement Laravel controller logic to:
+
+  * [x] Validate uploaded files (max 10MB each)
+  * [x] Store files under `storage/app/public/uploads`
+  * [x] Return JSON response `{ "success": true, "files": [...] }`
+* [x] Add try/catch blocks for safe backend error handling
+* [x] Return `Content-Type: application/json` for all responses
+* [x] Update Vue upload method to handle JSON responses properly
+* [x] Add per-file progress tracking and individual status messages
+* [x] Display overall success/error messages after upload
+* [x] Close dialog and reset form when uploads complete
+* [x] Run `php artisan storage:link` to enable file access
+* [x] Test multiple file uploads (PDF, DOCX, JPG, MP4) under 10MB each
