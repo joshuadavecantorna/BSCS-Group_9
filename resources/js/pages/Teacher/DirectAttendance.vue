@@ -132,43 +132,52 @@ const closeQRScanner = () => {
 };
 
 const onScanSuccess = async (scannedStudent: any) => {
+  // Individual scan success - no longer used for immediate marking
+  // Students are now added to pending list and marked when scanning stops
+};
+
+const onBatchScanSuccess = async (scannedStudents: Student[]) => {
   try {
-    // The QrScanner component already parsed the QR code and returned student info
-    // Now we just need to mark their attendance
-    const response = await fetch(`/teacher/attendance/${props.session.id}/mark`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
-      },
-      body: JSON.stringify({ 
-        student_id: scannedStudent.student_id,
-        status: 'present',
-        method: 'qr'
-      })
+    // Mark all scanned students as present in batch
+    const promises = scannedStudents.map(async (student) => {
+      const response = await fetch(`/teacher/attendance/${props.session.id}/mark`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
+        },
+        body: JSON.stringify({
+          student_id: student.student_id,
+          status: 'present',
+          method: 'qr'
+        })
+      });
+      return response.json();
     });
 
-    const data = await response.json();
-    
-    if (data.success) {
-      // Add student to attendance records
-      const studentInClass = props.students.find(s => s.student_id === scannedStudent.student_id);
+    const results = await Promise.all(promises);
+    const successfulMarks = results.filter(result => result.success).length;
+
+    // Update attendance records for all successfully marked students
+    scannedStudents.forEach(student => {
+      const studentInClass = props.students.find(s => s.student_id === student.student_id);
       if (studentInClass && !props.attendance_records.includes(studentInClass.id)) {
         props.attendance_records.push(studentInClass.id);
-        updateStats();
       }
-      
-      alert(`✅ ${scannedStudent.name} marked as present`);
+    });
+
+    updateStats();
+
+    if (successfulMarks > 0) {
+      alert(`✅ ${successfulMarks} student${successfulMarks > 1 ? 's' : ''} marked as present`);
     } else {
-      alert(`❌ ${data.message || 'Failed to mark attendance'}`);
+      alert('❌ Failed to mark attendance for any students');
     }
   } catch (error) {
-    console.error('Error marking attendance:', error);
+    console.error('Error marking batch attendance:', error);
     alert('Failed to mark attendance');
   }
-  
-  closeQRScanner();
 };
 
 // Manual input handlers
@@ -197,12 +206,13 @@ const markManualAttendance = async () => {
     const data = await response.json();
     
     if (data.success) {
-      // Update attendance records
-      if (!props.attendance_records.includes(data.record.student_id)) {
-        props.attendance_records.push(data.record.student_id);
+      // Update attendance records - use the numeric student ID
+      const studentId = data.student.id;
+      if (!props.attendance_records.includes(studentId)) {
+        props.attendance_records.push(studentId);
         updateStats();
       }
-      
+
       alert(`✅ Attendance marked successfully`);
       manualForm.reset();
     } else {
@@ -438,10 +448,11 @@ onMounted(() => {
     </Dialog>
 
     <!-- QR Scanner Component -->
-    <QrScanner 
+    <QrScanner
       :show="showQRScanner"
       @close="closeQRScanner"
       @scan-success="onScanSuccess"
+      @batch-scan-success="onBatchScanSuccess"
     />
   </AppLayout>
 </template>

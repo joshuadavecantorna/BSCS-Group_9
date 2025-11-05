@@ -11,7 +11,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Camera, RotateCw, X, CheckCircle, AlertCircle, QrCode, Upload, Zap, SwitchCamera, Flashlight, User, BookOpen, Calendar, Hash, GraduationCap, FileUp } from 'lucide-vue-next';
+import { Camera, RotateCw, X, CheckCircle, AlertCircle, QrCode, Upload, Zap, SwitchCamera, Flashlight, User, BookOpen, Calendar, Hash, GraduationCap, FileUp, Play, Square } from 'lucide-vue-next';
 import { router } from '@inertiajs/vue3';
 
 // Types
@@ -43,6 +43,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   close: [];
   scanSuccess: [student: Student];
+  batchScanSuccess: [students: Student[]];
 }>();
 
 // Reactive state
@@ -56,6 +57,8 @@ const debugInfo = ref<string>('');
 const manualQrInput = ref<string>('');
 const activeTab = ref<'camera' | 'manual' | 'upload'>('camera');
 const scanHistory = ref<ScanResult[]>([]);
+const isScanning = ref(false);
+const pendingScans = ref<Student[]>([]);
 
 // File upload state
 const fileInput = ref<HTMLInputElement | null>(null);
@@ -163,8 +166,10 @@ watch(() => props.show, (newVal) => {
     camera.value = 'auto';
     error.value = '';
     cameraStatus.value = 'loading';
+    isScanning.value = true;
   } else {
     camera.value = 'off';
+    isScanning.value = false;
   }
 }, { immediate: true });
 
@@ -291,7 +296,13 @@ const onDetect = async (detectedCodes: any[]) => {
 
     lastScannedStudent.value = studentData;
     saveToHistory(scanResult);
-    emit('scanSuccess', studentData);
+
+    // Add to pending scans instead of immediately emitting
+    const existingIndex = pendingScans.value.findIndex(s => s.student_id === studentData.student_id);
+    if (existingIndex === -1) {
+      pendingScans.value.push(studentData);
+    }
+
     error.value = '';
 
   } catch (err) {
@@ -786,7 +797,33 @@ const toggleTorch = () => {
 // Close scanner
 const closeScanner = () => {
   camera.value = 'off';
+  isScanning.value = false;
+  // Clear pending scans when closing without stopping
+  pendingScans.value = [];
   emit('close');
+};
+
+// Toggle scanning
+const toggleScanning = () => {
+  if (isScanning.value) {
+    // Stop scanning and process all pending scans
+    camera.value = 'off';
+    isScanning.value = false;
+
+    // Emit all pending scans as batch
+    if (pendingScans.value.length > 0) {
+      emit('batchScanSuccess', [...pendingScans.value]);
+      pendingScans.value = []; // Clear pending scans
+    }
+  } else {
+    // Start scanning
+    if (activeTab.value === 'camera' && isSecureContext.value) {
+      camera.value = 'auto';
+      error.value = '';
+      cameraStatus.value = 'loading';
+      isScanning.value = true;
+    }
+  }
 };
 
 // Switch tabs
@@ -1018,11 +1055,22 @@ const getYearBadgeVariant = (year: string) => {
             </div>
             <div class="flex items-center gap-2">
               <Badge variant="secondary" class="text-xs">
-                {{ scanHistory.length }} scans
+                {{ pendingScans.length }} pending • {{ scanHistory.length }} total
               </Badge>
               <Button variant="outline" size="sm" @click="quickTestScan">
                 <Zap class="h-4 w-4 mr-2" />
                 Test Scan
+              </Button>
+              <Button
+                v-if="activeTab === 'camera'"
+                :variant="isScanning ? 'destructive' : 'default'"
+                size="sm"
+                @click="toggleScanning"
+                :disabled="cameraStatus === 'error' || cameraStatus === 'unsupported'"
+              >
+                <Play v-if="!isScanning" class="h-4 w-4 mr-2" />
+                <Square v-if="isScanning" class="h-4 w-4 mr-2" />
+                {{ isScanning ? 'Stop Scanning' : 'Start Scanning' }}
               </Button>
               <Button variant="ghost" size="icon" @click="closeScanner">
                 <X class="h-5 w-5" />
@@ -1104,7 +1152,7 @@ const getYearBadgeVariant = (year: string) => {
                   </QrcodeStream>
 
                   <!-- Camera States -->
-                  <div v-if="cameraStatus !== 'ready'" class="absolute inset-0 flex items-center justify-center bg-muted/50">
+                  <div v-if="cameraStatus !== 'ready' && isScanning" class="absolute inset-0 flex items-center justify-center bg-muted/50">
                     <Card class="max-w-sm w-full mx-4">
                       <CardContent class="p-6 text-center">
                         <div v-if="cameraStatus === 'loading'" class="space-y-4">
@@ -1114,7 +1162,7 @@ const getYearBadgeVariant = (year: string) => {
                             <p class="text-sm text-muted-foreground">Please wait...</p>
                           </div>
                         </div>
-                        
+
                         <div v-else-if="cameraStatus === 'unsupported'" class="space-y-4">
                           <AlertCircle class="h-12 w-12 mx-auto text-yellow-500" />
                           <div>
@@ -1128,7 +1176,7 @@ const getYearBadgeVariant = (year: string) => {
                             Switch to Manual Mode
                           </Button>
                         </div>
-                        
+
                         <div v-else-if="cameraStatus === 'error'" class="space-y-4">
                           <AlertCircle class="h-12 w-12 mx-auto text-destructive" />
                           <div>
@@ -1149,22 +1197,41 @@ const getYearBadgeVariant = (year: string) => {
                     </Card>
                   </div>
 
+                  <!-- Stopped State -->
+                  <div v-if="!isScanning && cameraStatus !== 'ready'" class="absolute inset-0 flex items-center justify-center bg-muted/50">
+                    <Card class="max-w-sm w-full mx-4">
+                      <CardContent class="p-6 text-center">
+                        <div class="space-y-4">
+                          <Camera class="h-12 w-12 mx-auto text-muted-foreground" />
+                          <div>
+                            <p class="font-semibold text-lg">Camera Stopped</p>
+                            <p class="text-sm text-muted-foreground">Click "Start Scanning" to begin scanning QR codes</p>
+                          </div>
+                          <Button @click="toggleScanning" class="w-full">
+                            <Play class="h-4 w-4 mr-2" />
+                            Start Scanning
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+
                   <!-- Camera Controls -->
-                  <div v-if="cameraStatus === 'ready'" class="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex gap-3">
-                    <Button 
-                      variant="secondary" 
-                      size="lg" 
-                      @click="switchCamera" 
+                  <div v-if="cameraStatus === 'ready' && isScanning" class="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex gap-3">
+                    <Button
+                      variant="secondary"
+                      size="lg"
+                      @click="switchCamera"
                       :title="getCameraLabel()"
                       class="rounded-full shadow-xl backdrop-blur-sm bg-background/80"
                     >
                       <SwitchCamera class="h-5 w-5 mr-2" />
                       Switch
                     </Button>
-                    <Button 
+                    <Button
                       :variant="torch ? 'default' : 'secondary'"
-                      size="lg" 
-                      @click="toggleTorch" 
+                      size="lg"
+                      @click="toggleTorch"
                       title="Toggle flashlight"
                       class="rounded-full shadow-xl backdrop-blur-sm bg-background/80"
                     >
@@ -1174,7 +1241,7 @@ const getYearBadgeVariant = (year: string) => {
                   </div>
                 </div>
                 
-                <!-- Instructions -->
+                  <!-- Instructions -->
                 <div class="mt-4">
                   <Card class="bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200 dark:from-blue-950/20 dark:to-indigo-950/20">
                     <CardContent class="p-4">
@@ -1184,7 +1251,7 @@ const getYearBadgeVariant = (year: string) => {
                         </div>
                         <div>
                           <p class="text-sm font-medium text-blue-900 dark:text-blue-100">How to scan</p>
-                          <p class="text-xs text-blue-700 dark:text-blue-300">Scan QR codes containing student name and course (e.g., "EJ FAYE A. DULAY,BSCS,,"). Students will be automatically marked as present.</p>
+                          <p class="text-xs text-blue-700 dark:text-blue-300">Scan QR codes containing student name and course (e.g., "EJ FAYE A. DULAY,BSCS,,"). Students will be added to pending list. Click "Stop Scanning" to mark all scanned students as present.</p>
                         </div>
                       </div>
                     </CardContent>
@@ -1194,8 +1261,50 @@ const getYearBadgeVariant = (year: string) => {
               
               <!-- Results Sidebar -->
               <div class="xl:col-span-1 space-y-6">
+                <!-- Pending Scans Preview -->
+                <div v-if="pendingScans.length > 0" class="animate-fade-in">
+                  <div class="flex items-center gap-2 mb-3">
+                    <Clock class="h-4 w-4 text-orange-500" />
+                    <p class="text-sm font-medium text-muted-foreground">Pending Scans ({{ pendingScans.length }})</p>
+                    <Badge variant="outline" class="ml-auto text-xs bg-orange-50 text-orange-700 border-orange-200">
+                      Will be marked present when stopped
+                    </Badge>
+                  </div>
+                  <div class="space-y-2 max-h-64 overflow-y-auto">
+                    <Card v-for="(student, index) in pendingScans.slice(0, 5)" :key="student.id"
+                          class="group hover:border-orange-300 transition-colors border-orange-200 bg-orange-50/50 dark:bg-orange-950/20">
+                      <CardContent class="p-3">
+                        <div class="flex items-center gap-2">
+                          <Avatar class="h-8 w-8 shrink-0">
+                            <AvatarFallback class="text-xs bg-orange-100 text-orange-700">
+                              {{ getInitials(student.name) }}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div class="flex-1 min-w-0">
+                            <p class="text-sm font-medium truncate">{{ student.name }}</p>
+                            <div class="flex items-center gap-2 mt-1">
+                              <Badge variant="outline" class="text-xs font-mono">
+                                {{ student.student_id }}
+                              </Badge>
+                              <Badge :variant="getYearBadgeVariant(student.year)" class="text-xs" v-if="student.year">
+                                {{ student.year }}
+                              </Badge>
+                            </div>
+                          </div>
+                          <Badge variant="outline" class="text-xs shrink-0">
+                            {{ formatTime(student.timestamp!) }}
+                          </Badge>
+                        </div>
+                      </CardContent>
+                    </Card>
+                    <div v-if="pendingScans.length > 5" class="text-center py-2">
+                      <p class="text-xs text-muted-foreground">+{{ pendingScans.length - 5 }} more students</p>
+                    </div>
+                  </div>
+                </div>
+
                 <!-- Last Scanned Student -->
-                <div v-if="lastScannedStudent" class="animate-fade-in">
+                <div v-if="lastScannedStudent && pendingScans.length === 0" class="animate-fade-in">
                   <div class="flex items-center gap-2 mb-3">
                     <CheckCircle class="h-4 w-4 text-green-500" />
                     <p class="text-sm font-medium text-muted-foreground">Last Scanned</p>
@@ -1218,7 +1327,7 @@ const getYearBadgeVariant = (year: string) => {
                               Present
                             </Badge>
                           </div>
-                          
+
                           <div class="space-y-1 text-xs">
                             <div class="flex items-center gap-2">
                               <Hash class="h-3 w-3 text-muted-foreground" />
