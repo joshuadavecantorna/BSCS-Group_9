@@ -34,6 +34,7 @@ interface Props {
     course: string;
     section: string;
   }>;
+  files?: FileItem[];
 }
 
 const props = defineProps<Props>();
@@ -44,7 +45,7 @@ const breadcrumbs = [
   { title: 'All Files', href: '/teacher/files/all' }
 ];
 
-const files = ref<FileItem[]>([]);
+const files = ref<FileItem[]>(props.files || []);
 const loading = ref(false);
 const search = ref('');
 const selectedClass = ref('');
@@ -67,10 +68,10 @@ const fetchFiles = async () => {
     const params = new URLSearchParams();
     if (search.value) params.append('search', search.value);
     if (selectedClass.value) params.append('class_id', selectedClass.value);
-    
+
     const response = await fetch(`/teacher/files/list?${params}`);
     const data = await response.json();
-    
+
     if (data.success) {
       files.value = data.files.data || [];
     }

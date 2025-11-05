@@ -1146,17 +1146,16 @@ class TeacherController extends Controller
                 'file_type' => $file->getMimeType(),
                 'file_size' => $file->getSize(),
                 'description' => $request->description,
-                'visibility' => $request->boolean('allow_download', true) ? 'public' : 'private',
-                'is_active' => true
+                'visibility' => $request->boolean('allow_download', true) ? 'public' : 'private'
             ]);
 
             $uploadedFiles[] = $classFile;
         }
 
-        return response()->json([
+        return redirect()->back()->with([
             'success' => true,
             'message' => count($uploadedFiles) . ' file(s) uploaded successfully',
-            'files' => $uploadedFiles
+            'uploadedFiles' => $uploadedFiles
         ]);
     }
 
@@ -1262,9 +1261,29 @@ class TeacherController extends Controller
             ->select('id', 'name', 'course', 'section')
             ->get();
 
+        $files = ClassFile::with(['class'])
+            ->where('teacher_id', $teacher->id)
+            ->whereRaw('COALESCE(is_active, true) = true')
+            ->orderBy('created_at', 'desc')
+            ->get()
+            ->map(function ($file) {
+                return [
+                    'id' => $file->id,
+                    'file_name' => $file->original_name ?? $file->file_name,
+                    'file_type' => $file->file_type,
+                    'file_size_formatted' => $file->file_size_formatted,
+                    'class_name' => $file->class->name ?? 'Unknown',
+                    'class_course' => $file->class->course ?? '',
+                    'description' => $file->description,
+                    'created_at' => $file->created_at,
+                    'download_url' => route('teacher.files.download', $file->id)
+                ];
+            });
+
         return Inertia::render('Teacher/AllFiles', [
             'teacher' => $teacher,
-            'classes' => $classes
+            'classes' => $classes,
+            'files' => $files
         ]);
     }
 
@@ -1330,45 +1349,72 @@ class TeacherController extends Controller
     }
 
     /**
-     * Get recent files for the teacher
+     * Get recent files for the teacher from storage directory
      */
     public function getRecentFiles()
     {
-        try {
-            $teacher = $this->getCurrentTeacher();
-        } catch (\Exception $e) {
-            // For debugging, let's try to get teacher ID 4 directly since auth might not be working
-            $teacher = \App\Models\Teacher::find(4);
-            if (!$teacher) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'No teacher found for testing'
-                ], 404);
+        $storagePath = storage_path('app/public/class-files');
+        $recentFiles = [];
+
+        if (is_dir($storagePath)) {
+            // Get all subdirectories (class IDs)
+            $classDirs = array_filter(glob($storagePath . '/*'), 'is_dir');
+
+            foreach ($classDirs as $classDir) {
+                if (is_dir($classDir)) {
+                    // Get all files in this class directory
+                    $files = glob($classDir . '/*');
+
+                    foreach ($files as $filePath) {
+                        if (is_file($filePath)) {
+                            $fileName = basename($filePath);
+                            $fileInfo = pathinfo($fileName);
+
+                            // Extract timestamp from filename (assuming format: timestamp_randomstring_extension)
+                            $parts = explode('_', $fileName);
+                            $timestamp = isset($parts[0]) && is_numeric($parts[0]) ? (int)$parts[0] : 0;
+
+                            // Get class ID from directory name
+                            $classId = basename($classDir);
+
+                            // Get class info
+                            $class = ClassModel::find($classId);
+
+                            // Get file size
+                            $fileSize = filesize($filePath);
+
+                            // Determine file type from extension
+                            $fileType = $this->getMimeTypeFromExtension($fileInfo['extension'] ?? 'unknown');
+
+                            $recentFiles[] = [
+                                'id' => $fileName, // Use filename as ID since we're not using database
+                                'file_name' => $fileName,
+                                'file_type' => $fileType,
+                                'file_size' => $fileSize,
+                                'file_size_formatted' => $this->formatFileSize($fileSize),
+                                'class_name' => $class ? $class->name : 'Unknown Class',
+                                'class_course' => $class ? $class->course : '',
+                                'class_id' => $classId,
+                                'created_at' => date('Y-m-d H:i:s', $timestamp),
+                                'timestamp' => $timestamp,
+                                'download_url' => route('teacher.files.download', $fileName)
+                            ];
+                        }
+                    }
+                }
             }
+
+            // Sort by timestamp descending and limit to 10 most recent
+            usort($recentFiles, function($a, $b) {
+                return $b['timestamp'] <=> $a['timestamp'];
+            });
+
+            $recentFiles = array_slice($recentFiles, 0, 10);
         }
-        
-        $files = ClassFile::with(['class'])
-                          ->where('teacher_id', $teacher->id)
-                          ->whereRaw('COALESCE(is_active, true) = true')
-                          ->orderBy('created_at', 'desc')
-                          ->limit(10)
-                          ->get()
-                          ->map(function ($file) {
-                              return [
-                                  'id' => $file->id,
-                                  'file_name' => $file->original_name ?? $file->file_name,
-                                  'file_type' => $file->file_type,
-                                  'file_size_formatted' => $file->file_size_formatted,
-                                  'class_name' => $file->class->name ?? 'Unknown',
-                                  'class_course' => $file->class->course ?? '',
-                                  'created_at' => $file->created_at,
-                                  'download_url' => route('teacher.files.download', $file->id)
-                              ];
-                          });
 
         return response()->json([
             'success' => true,
-            'recentFiles' => $files
+            'recentFiles' => $recentFiles
         ]);
     }
 
@@ -1455,6 +1501,34 @@ class TeacherController extends Controller
             return number_format($bytes / 1024, 2) . ' KB';
         }
         return $bytes . ' bytes';
+    }
+
+    /**
+     * Get MIME type from file extension
+     */
+    private function getMimeTypeFromExtension($extension)
+    {
+        $mimeTypes = [
+            'pdf' => 'application/pdf',
+            'doc' => 'application/msword',
+            'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'xls' => 'application/vnd.ms-excel',
+            'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'ppt' => 'application/vnd.ms-powerpoint',
+            'pptx' => 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            'txt' => 'text/plain',
+            'jpg' => 'image/jpeg',
+            'jpeg' => 'image/jpeg',
+            'png' => 'image/png',
+            'gif' => 'image/gif',
+            'mp4' => 'video/mp4',
+            'avi' => 'video/x-msvideo',
+            'mov' => 'video/quicktime',
+            'zip' => 'application/zip',
+            'rar' => 'application/x-rar-compressed',
+        ];
+
+        return $mimeTypes[strtolower($extension)] ?? 'application/octet-stream';
     }
 
     /**

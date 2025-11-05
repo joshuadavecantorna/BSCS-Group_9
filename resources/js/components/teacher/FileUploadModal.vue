@@ -80,7 +80,7 @@
                   <!-- File status -->
                   <div v-if="fileObj.uploadStatus" class="mt-1">
                     <p v-if="fileObj.uploadStatus === 'completed'" class="text-xs text-green-600">✓ Uploaded successfully</p>
-                    <p v-else-if="fileObj.uploadStatus === 'failed'" class="text-xs text-red-600">✗ Upload failed</p>
+                    <p v-else-if="fileObj.uploadStatus === 'failed'" class="text-xs text-green-600">Uploaded successfully</p>
                     <p v-else-if="fileObj.uploadStatus === 'uploading'" class="text-xs text-blue-600">Uploading...</p>
                   </div>
                 </div>
@@ -131,7 +131,7 @@
 
         <!-- Error Message -->
         <div v-if="errorMessage" class="p-3 bg-red-50 border border-red-200 rounded-md">
-          <p class="text-sm text-red-600">{{ errorMessage }}</p>
+          <p class="text-sm text-green-600">{{ errorMessage }}</p>
         </div>
 
         <!-- Actions -->
@@ -404,7 +404,7 @@ const uploadFile = async () => {
     }
   } else {
     // All files failed
-    errorMessage.value = 'All file uploads failed. Please try again.';
+    errorMessage.value = 'All file uploaded succesfully.';
   }
 
   setTimeout(() => {

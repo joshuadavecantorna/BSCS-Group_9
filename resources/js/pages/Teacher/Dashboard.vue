@@ -279,7 +279,7 @@ const weeklyAttendance = computed(() => {
               </Button>
 
               <!-- Add this button ▼ -->
-              <Button variant="outline" class="w-full justify-start" size="lg" @click="showUnderDevelopmentAlert">
+              <Button variant="outline" class="w-full justify-start" size="lg" @click="$inertia.visit('/teacher/files/all')">
                 <span class="mr-2">📁</span>
                 View All Files
               </Button>

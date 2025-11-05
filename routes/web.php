@@ -64,7 +64,7 @@ Route::middleware(['auth', 'verified'])->prefix('teacher')->name('teacher.')->gr
     Route::get('/files/all', [App\Http\Controllers\TeacherController::class, 'getAllFilesPage']);
     Route::get('/files/list', [App\Http\Controllers\TeacherController::class, 'getAllFiles']);
     Route::get('/files/recent', [App\Http\Controllers\TeacherController::class, 'getRecentFiles']);
-    Route::get('/files/download/{fileId}', [App\Http\Controllers\TeacherController::class, 'downloadFile'])->name('teacher.files.download');
+    Route::get('/files/download/{fileId}', [App\Http\Controllers\TeacherController::class, 'downloadFile'])->name('files.download');
     Route::get('/files/class/{classId}', [App\Http\Controllers\TeacherController::class, 'getClassFiles']);
     
     // Reports
