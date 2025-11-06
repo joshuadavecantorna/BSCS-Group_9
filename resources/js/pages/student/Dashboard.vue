@@ -506,11 +506,20 @@ const getStatusIcon = (status: string) => {
                 <SelectValue placeholder="Choose a class" />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem v-if="enrolledClasses.length === 0" value="" disabled>
+                  No enrolled classes found
+                </SelectItem>
                 <SelectItem v-for="cls in enrolledClasses" :key="cls.id" :value="String(cls.id)">
-                  {{ cls.name }}
+                  {{ cls.display_name || `${cls.name} - ${cls.course} ${cls.section}` }}
                 </SelectItem>
               </SelectContent>
             </Select>
+          </div>
+          
+          <!-- Debug information -->
+          <div v-if="enrolledClasses.length === 0" class="p-3 bg-yellow-100 border border-yellow-400 rounded text-sm">
+            <p class="font-medium text-yellow-800">No enrolled classes found</p>
+            <p class="text-yellow-700">Please contact your teacher to be enrolled in a class.</p>
           </div>
           
           <div v-if="selectedClass" class="border rounded-lg overflow-hidden bg-muted/50">

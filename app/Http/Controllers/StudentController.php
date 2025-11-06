@@ -79,9 +79,11 @@ class StudentController extends Controller
         // Get enrolled classes with teacher info
         $classes = DB::table('class_student')
             ->join('class_models', 'class_student.class_model_id', '=', 'class_models.id')
-            ->join('teachers', 'class_models.teacher_id', '=', 'teachers.id')
+            ->join('teachers', 'class_models.teacher_id', '=', 'teachers.user_id')
+            ->join('users', 'teachers.user_id', '=', 'users.id')
             ->where('class_student.student_id', $student->id)
             ->where('class_student.status', 'enrolled')
+            ->whereRaw('COALESCE(class_models.is_active, true) = true')
             ->select(
                 'class_models.id',
                 'class_models.name',
@@ -91,9 +93,28 @@ class StudentController extends Controller
                 'class_models.schedule_time',
                 'class_models.schedule_days',
                 'class_models.subject',
-                DB::raw("CONCAT(teachers.first_name, ' ', teachers.last_name) as teacher_name")
+                'class_models.room',
+                'class_models.class_code',
+                'users.name as teacher_name'
             )
-            ->get();
+            ->orderBy('class_models.name')
+            ->get()
+            ->map(function ($class) {
+                return [
+                    'id' => $class->id,
+                    'name' => $class->name,
+                    'course' => $class->course,
+                    'section' => $class->section,
+                    'year' => $class->year,
+                    'subject' => $class->subject,
+                    'room' => $class->room ?? 'TBD',
+                    'schedule_time' => $class->schedule_time,
+                    'schedule_days' => json_decode($class->schedule_days, true) ?? [],
+                    'class_code' => $class->class_code,
+                    'teacher_name' => $class->teacher_name,
+                    'display_name' => $class->name . ' - ' . $class->course . ' ' . $class->section
+                ];
+            });
 
         // Get upcoming classes based on schedule
         $upcomingClasses = $this->getUpcomingClassesBySchedule($student);
