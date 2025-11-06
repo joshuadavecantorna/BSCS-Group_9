@@ -6,6 +6,8 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class AttendanceSession extends Model
 {
@@ -23,7 +25,11 @@ class AttendanceSession extends Model
         'notes',
         'qr_code',
         'allow_late_attendance',
-        'late_minutes_allowed'
+        'late_minutes_allowed',
+        'present_count',
+        'absent_count',
+        'excused_count',
+        'total_students'
     ];
 
     protected $casts = [
@@ -69,12 +75,33 @@ class AttendanceSession extends Model
     // Methods
     public function updateCounts()
     {
-        $records = $this->attendanceRecords;
+        // Get fresh records directly from database
+        $records = AttendanceRecord::where('attendance_session_id', $this->id)->get();
+        
+        // Get total enrolled students
+        $totalStudents = DB::table('class_student')
+            ->where('class_model_id', $this->class_id)
+            ->where('status', 'enrolled')
+            ->count();
+        
+        // Calculate counts
+        $presentCount = $records->where('status', 'present')->count();
+        $absentCount = $records->where('status', 'absent')->count();
+        $excusedCount = $records->where('status', 'excused')->count();
+        
+        Log::info('Updating attendance session counts', [
+            'session_id' => $this->id,
+            'present_count' => $presentCount,
+            'absent_count' => $absentCount,
+            'excused_count' => $excusedCount,
+            'total_students' => $totalStudents
+        ]);
         
         $this->update([
-            'present_count' => $records->where('status', 'present')->count(),
-            'absent_count' => $records->where('status', 'absent')->count(),
-            'excused_count' => $records->where('status', 'excused')->count()
+            'present_count' => $presentCount,
+            'absent_count' => $absentCount,
+            'excused_count' => $excusedCount,
+            'total_students' => $totalStudents
         ]);
     }
 

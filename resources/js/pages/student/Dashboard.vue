@@ -200,7 +200,7 @@ const onQRScan = async (qrData: string) => {
       throw new Error(`QR code course "${scannedCourse}" does not match your profile course "${props.student.course}"`);
     }
 
-    // Get CSRF token
+    // Get CSRF token from meta tag
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
     if (!csrfToken) {
       throw new Error('CSRF token not found. Please refresh the page.');
@@ -208,7 +208,6 @@ const onQRScan = async (qrData: string) => {
 
     console.log('QR Data verified - Name:', scannedName, 'Course:', scannedCourse);
     console.log('Marking attendance for class:', selectedClass.value);
-    console.log('CSRF Token:', csrfToken);
 
     const response = await fetch('/student/self-checkin', {
       method: 'POST',
@@ -216,7 +215,8 @@ const onQRScan = async (qrData: string) => {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
         'X-CSRF-TOKEN': csrfToken,
-        'X-Requested-With': 'XMLHttpRequest'
+        'X-Requested-With': 'XMLHttpRequest',
+        'Authorization': `Bearer ${csrfToken}`
       },
       credentials: 'same-origin',
       body: JSON.stringify({

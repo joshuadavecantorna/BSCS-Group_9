@@ -651,17 +651,28 @@ class TeacherController extends Controller
             return response()->json(['error' => 'Session not found or access denied'], 404);
         }
 
-        // Get attendance records for this session
+        // Get attendance records for this session with debugging
+        Log::info('Fetching attendance records for session', [
+            'session_id' => $sessionId,
+            'class_id' => $session->class_id
+        ]);
+
         $records = DB::table('attendance_records')
                     ->join('students', 'attendance_records.student_id', '=', 'students.id')
                     ->where('attendance_session_id', $sessionId)
                     ->select(
                         'attendance_records.*',
-                        'students.student_id',
+                        'students.id as student_id',
                         'students.name',
-                        'students.email'
+                        'students.email',
+                        'students.student_id as student_number'
                     )
                     ->get();
+
+        Log::info('Found attendance records', [
+            'record_count' => $records->count(),
+            'records' => $records->toArray()
+        ]);
 
                 // Get all students in the class for comparison
         $allStudents = DB::table('class_student')

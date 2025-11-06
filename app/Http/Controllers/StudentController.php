@@ -631,35 +631,132 @@ class StudentController extends Controller
             }
         }
 
-        // Check if already checked in
+        // Check if already checked in - with detailed logging
         $existingRecord = AttendanceRecord::where('attendance_session_id', $session->id)
             ->where('student_id', $student->id)
             ->first();
 
+        Log::info('Checking existing attendance record', [
+            'session_id' => $session->id,
+            'student_id' => $student->id,
+            'existing_record' => $existingRecord ? $existingRecord->toArray() : null
+        ]);
+
         if ($existingRecord) {
-            return response()->json([
-                'success' => false,
-                'message' => 'You have already checked in for this session.',
-            ], 400);
+            // Delete the existing record and create a new one
+            $existingRecord->delete();
+            Log::info('Deleted existing record to create a new one', [
+                'deleted_record_id' => $existingRecord->id
+            ]);
         }
 
-        // Create attendance record
-        AttendanceRecord::create([
-            'attendance_session_id' => $session->id,
-            'student_id' => $student->id,
-            'status' => 'present',
-            'marked_at' => now(),
-            'marked_by' => 'student',
-            'notes' => 'Self Check-in via Name+Course QR',
-        ]);
+        try {
+            DB::beginTransaction();
 
-        // Update session counts
-        $session->updateCounts();
+            // Log the data we're about to insert
+            Log::info('Attempting to create attendance record', [
+                'session_id' => $session->id,
+                'student_id' => $student->id,
+                'student_name' => $student->name,
+                'class_id' => $validated['class_id']
+            ]);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Successfully marked as present!',
-        ]);
+            // Double-check if there's an existing record and remove it
+            AttendanceRecord::where('attendance_session_id', $session->id)
+                           ->where('student_id', $student->id)
+                           ->delete();
+
+            // Create attendance record with error checking
+            $recordData = [
+                'attendance_session_id' => $session->id,
+                'student_id' => $student->id,
+                'status' => 'present',
+                'marked_at' => now(),
+                'marked_by' => 'student',
+                'notes' => 'Self Check-in via Name+Course QR',
+            ];
+
+            // Validate the session exists
+            if (!AttendanceSession::find($session->id)) {
+                throw new \Exception('Invalid attendance session');
+            }
+
+            // Validate the student exists
+            if (!Student::find($student->id)) {
+                throw new \Exception('Invalid student ID');
+            }
+
+            // Create the record and refresh to get all attributes
+            $record = AttendanceRecord::create($recordData);
+            $record = $record->fresh();
+
+            // Verify the record was created
+            $verifyRecord = AttendanceRecord::where('attendance_session_id', $session->id)
+                                          ->where('student_id', $student->id)
+                                          ->first();
+
+            if (!$verifyRecord) {
+                throw new \Exception('Failed to verify attendance record creation');
+            }
+
+            Log::info('Attendance record created successfully', [
+                'record_id' => $record->id,
+                'verify_record_id' => $verifyRecord->id,
+                'session_id' => $session->id,
+                'student_id' => $student->id
+            ]);
+
+            if (!$record) {
+                throw new \Exception('Failed to create attendance record');
+            }
+
+            Log::info('Attendance record created', [
+                'record_id' => $record->id,
+                'session_id' => $session->id,
+                'student_id' => $student->id,
+                'marked_at' => $record->marked_at
+            ]);
+
+            // Update session counts within the transaction
+            $presentCount = AttendanceRecord::where('attendance_session_id', $session->id)
+                ->where('status', 'present')
+                ->count();
+            
+            $session->present_count = $presentCount;
+            $session->save();
+
+            DB::commit();
+
+            Log::info('Session counts updated', [
+                'session_id' => $session->id,
+                'present_count' => $presentCount
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Successfully marked as present!',
+                'record_id' => $record->id,
+                'session_id' => $session->id
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            
+            Log::error('Error creating attendance record', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'student_id' => $student->id,
+                'session_id' => $session->id,
+                'student_name' => $student->name,
+                'class_id' => $validated['class_id'] ?? null
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to record attendance: ' . $e->getMessage(),
+                'debug_info' => app()->environment('local') ? $e->getMessage() : null
+            ], 500);
+        }
     }
 
     /**
