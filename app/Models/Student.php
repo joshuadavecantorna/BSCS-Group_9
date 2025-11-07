@@ -72,6 +72,11 @@ class Student extends Model
         return $this->hasMany(Attendance::class);
     }
 
+    public function attendanceRecords()
+    {
+        return $this->hasMany(AttendanceRecord::class);
+    }
+
     public function userByEmail()
     {
         return $this->belongsTo(User::class, 'email', 'email');

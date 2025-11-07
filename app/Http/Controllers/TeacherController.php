@@ -635,17 +635,12 @@ class TeacherController extends Controller
     {
         $teacher = $this->getCurrentTeacher();
         
-        $session = DB::table('attendance_sessions')
-                    ->join('class_models', 'attendance_sessions.class_id', '=', 'class_models.id')
-                    ->where('attendance_sessions.id', $sessionId)
-                    ->where('class_models.teacher_id', $teacher->user_id)
-                    ->select(
-                        'attendance_sessions.*',
-                        'class_models.name as class_name',
-                        'class_models.course',
-                        'class_models.section'
-                    )
-                    ->first();
+        $session = AttendanceSession::with(['class'])
+            ->whereHas('class', function($query) use ($teacher) {
+                $query->where('teacher_id', $teacher->user_id);
+            })
+            ->where('id', $sessionId)
+            ->first();
 
         if (!$session) {
             return response()->json(['error' => 'Session not found or access denied'], 404);
@@ -657,17 +652,22 @@ class TeacherController extends Controller
             'class_id' => $session->class_id
         ]);
 
-        $records = DB::table('attendance_records')
-                    ->join('students', 'attendance_records.student_id', '=', 'students.id')
-                    ->where('attendance_session_id', $sessionId)
-                    ->select(
-                        'attendance_records.*',
-                        'students.id as student_id',
-                        'students.name',
-                        'students.email',
-                        'students.student_id as student_number'
-                    )
-                    ->get();
+        $records = AttendanceRecord::with(['student'])
+            ->where('attendance_session_id', $sessionId)
+            ->get()
+            ->map(function ($record) {
+                return [
+                    'id' => $record->id,
+                    'attendance_session_id' => $record->attendance_session_id,
+                    'student_id' => $record->student->id,
+                    'name' => $record->student->name,
+                    'email' => $record->student->email,
+                    'student_number' => $record->student->student_id,
+                    'status' => $record->status,
+                    'marked_at' => $record->marked_at,
+                    'notes' => $record->notes
+                ];
+            });
 
         Log::info('Found attendance records', [
             'record_count' => $records->count(),

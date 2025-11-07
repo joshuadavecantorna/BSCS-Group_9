@@ -24,6 +24,13 @@ class StudentController extends Controller
     {
         $user = Auth::user();
         
+        // Log the current user information
+        Log::info('Getting current student for user', [
+            'user_id' => $user->id,
+            'user_email' => $user->email,
+            'user_name' => $user->name
+        ]);
+        
         // First try to find by user_id
         $student = Student::where('user_id', $user->id)->first();
         
@@ -34,19 +41,46 @@ class StudentController extends Controller
             if ($existingStudent) {
                 // Link the existing student to this user
                 $existingStudent->update(['user_id' => $user->id]);
-                $student = $existingStudent;
+                $student = $existingStudent->fresh();
+                
+                Log::info('Linked existing student to user', [
+                    'student_id' => $student->id,
+                    'user_id' => $user->id
+                ]);
             } else {
                 // Create a new student record
-                $student = Student::create([
-                    'user_id' => $user->id,
-                    'name' => $user->name,
-                    'email' => $user->email,
-                    'student_id' => 'TEMP-' . $user->id,
-                    'course' => 'Not Set',
-                    'year' => '1st Year',
-                    'section' => 'A'
-                ]);
+                try {
+                    $student = Student::create([
+                        'user_id' => $user->id,
+                        'name' => $user->name,
+                        'email' => $user->email,
+                        'student_id' => 'TEMP-' . $user->id,
+                        'course' => 'Not Set',
+                        'year' => '1st Year',
+                        'section' => 'A',
+                        'is_active' => true
+                    ]);
+                    
+                    Log::info('Created new student record', [
+                        'student_id' => $student->id,
+                        'user_id' => $user->id
+                    ]);
+                } catch (\Exception $e) {
+                    Log::error('Error creating student record', [
+                        'error' => $e->getMessage(),
+                        'user_id' => $user->id
+                    ]);
+                    throw $e;
+                }
             }
+        }
+        
+        if (!$student) {
+            Log::error('Failed to get or create student record', [
+                'user_id' => $user->id,
+                'user_email' => $user->email
+            ]);
+            throw new \Exception('Unable to retrieve or create student record');
         }
         
         return $student;
@@ -666,6 +700,34 @@ class StudentController extends Controller
                            ->where('student_id', $student->id)
                            ->delete();
 
+            // Verify class enrollment one more time
+            $enrollment = DB::table('class_student')
+                ->where('student_id', $student->id)
+                ->where('class_model_id', $validated['class_id'])
+                ->where('status', 'enrolled')
+                ->first();
+
+            if (!$enrollment) {
+                Log::error('Student enrollment verification failed', [
+                    'student_id' => $student->id,
+                    'class_id' => $validated['class_id']
+                ]);
+                throw new \Exception('Student enrollment verification failed');
+            }
+
+            // Validate the session exists and is active
+            $activeSession = AttendanceSession::where('id', $session->id)
+                ->where('status', 'active')
+                ->first();
+
+            if (!$activeSession) {
+                Log::error('Invalid or inactive attendance session', [
+                    'session_id' => $session->id,
+                    'class_id' => $validated['class_id']
+                ]);
+                throw new \Exception('Invalid or inactive attendance session');
+            }
+
             // Create attendance record with error checking
             $recordData = [
                 'attendance_session_id' => $session->id,
@@ -676,15 +738,11 @@ class StudentController extends Controller
                 'notes' => 'Self Check-in via Name+Course QR',
             ];
 
-            // Validate the session exists
-            if (!AttendanceSession::find($session->id)) {
-                throw new \Exception('Invalid attendance session');
-            }
-
-            // Validate the student exists
-            if (!Student::find($student->id)) {
-                throw new \Exception('Invalid student ID');
-            }
+            Log::info('Creating attendance record', [
+                'record_data' => $recordData,
+                'student_name' => $student->name,
+                'class_id' => $validated['class_id']
+            ]);
 
             // Create the record and refresh to get all attributes
             $record = AttendanceRecord::create($recordData);
