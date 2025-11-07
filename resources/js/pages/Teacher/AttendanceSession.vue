@@ -44,11 +44,30 @@ interface AttendanceSession {
   };
 }
 
+interface AttendanceRecord {
+  id: number;
+  student_id: number;
+  status: 'present' | 'absent' | 'late' | 'excused';
+  marked_at: string;
+  marked_by: string;
+  notes: string;
+  student: {
+    id: number;
+    name: string;
+    student_number: string;
+    email: string;
+  } | null;
+}
+
 interface Props {
-  teacher: any;
+  teacher: {
+    id: number;
+    name: string;
+    email: string;
+  };
   session: AttendanceSession;
   students: Student[];
-  attendance_records: number[];
+  attendance_records: AttendanceRecord[];
 }
 
 const props = defineProps<Props>();
@@ -371,11 +390,19 @@ const endSession = () => {
 
 // Computed properties
 const studentsPresent = computed(() => 
-  props.students.filter(student => props.attendance_records.includes(student.id))
+  props.students.filter(student => 
+    props.attendance_records.some(record => 
+      record.student_id === student.id && record.status === 'present'
+    )
+  )
 );
 
 const studentsAbsent = computed(() => 
-  props.students.filter(student => !props.attendance_records.includes(student.id))
+  props.students.filter(student => 
+    !props.attendance_records.some(record => 
+      record.student_id === student.id
+    )
+  )
 );
 
 const attendanceRate = computed(() => {

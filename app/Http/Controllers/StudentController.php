@@ -559,32 +559,75 @@ class StudentController extends Controller
             ], 400);
         }
 
-        // Check if already checked in
-        $existingRecord = AttendanceRecord::where('attendance_session_id', $session->id)
-            ->where('student_id', $student->id)
-            ->first();
+        try {
+            DB::beginTransaction();
+            
+            // Check if already checked in (within transaction to prevent race conditions)
+            $existingRecord = AttendanceRecord::where('attendance_session_id', $session->id)
+                ->where('student_id', $student->id)
+                ->lockForUpdate()
+                ->first();
 
-        if ($existingRecord) {
+            if ($existingRecord) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'You have already checked in for this session.',
+                ], 400);
+            }
+            
+            // Create attendance record
+            $record = AttendanceRecord::create([
+                'attendance_session_id' => $session->id,
+                'student_id' => $student->id,
+                'status' => 'present',
+                'marked_at' => now(),
+                'marked_by' => 'student',
+                'notes' => $validated['method'] === 'qr' ? 'QR Code Check-in' : 'Manual Check-in',
+            ]);
+
+            if (!$record) {
+                throw new \Exception('Failed to create attendance record');
+            }
+
+            // Update all session counts and refresh from database
+            $session->updateCounts();
+            $session->refresh();
+            
+            Log::info('Updated session counts', [
+                'session_id' => $session->id,
+                'present_count' => $session->present_count,
+                'absent_count' => $session->absent_count,
+                'excused_count' => $session->excused_count,
+                'total_students' => $session->total_students
+            ]);
+            Log::info('Attendance record created successfully', [
+                'student_id' => $student->id,
+                'session_id' => $session->id,
+                'record_id' => $record->id
+            ]);
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Successfully checked in!',
+                'record_id' => $record->id
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Failed to create attendance record', [
+                'error' => $e->getMessage(),
+                'student_id' => $student->id,
+                'session_id' => $session->id
+            ]);
+
             return response()->json([
                 'success' => false,
-                'message' => 'You have already checked in for this session.',
-            ], 400);
+                'message' => 'Failed to record attendance. Please try again.',
+            ], 500);
         }
-
-        // Create attendance record
-        AttendanceRecord::create([
-            'attendance_session_id' => $session->id,
-            'student_id' => $student->id,
-            'status' => 'present',
-            'marked_at' => now(),
-            'marked_by' => 'student',
-            'notes' => $validated['method'] === 'qr' ? 'QR Code Check-in' : 'Manual Check-in',
-        ]);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Successfully checked in!',
-        ]);
     }
 
     /**

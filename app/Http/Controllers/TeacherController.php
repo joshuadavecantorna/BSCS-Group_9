@@ -584,7 +584,11 @@ class TeacherController extends Controller
             'duration' => $request->duration ?? 60, // Default to 60 minutes
             'notes' => $request->notes,
             'status' => 'active',
-            'qr_code' => $qrCode
+            'qr_code' => $qrCode,
+            'present_count' => 0,
+            'absent_count' => 0,
+            'excused_count' => 0,
+            'total_students' => $totalStudents
         ]);
 
         // Redirect to the attendance session page instead of JSON response
@@ -652,8 +656,20 @@ class TeacherController extends Controller
             'class_id' => $session->class_id
         ]);
 
+        // First get all enrolled students in the class
+        $enrolledStudents = DB::table('class_student')
+            ->where('class_model_id', $session->class_id)
+            ->where('status', 'enrolled')
+            ->pluck('student_id');
+
+        Log::info('Fetching attendance records for enrolled students', [
+            'class_id' => $session->class_id,
+            'enrolled_count' => $enrolledStudents->count()
+        ]);
+
         $records = AttendanceRecord::with(['student'])
             ->where('attendance_session_id', $sessionId)
+            ->whereIn('student_id', $enrolledStudents)
             ->get()
             ->map(function ($record) {
                 return [
@@ -665,6 +681,7 @@ class TeacherController extends Controller
                     'student_number' => $record->student->student_id,
                     'status' => $record->status,
                     'marked_at' => $record->marked_at,
+                    'marked_by' => $record->marked_by,
                     'notes' => $record->notes
                 ];
             });
@@ -1044,35 +1061,143 @@ class TeacherController extends Controller
      */
     public function showAttendanceSession($sessionId)
     {
-        $teacher = $this->getCurrentTeacher();
-        $session = AttendanceSession::with(['class', 'attendanceRecords.student'])
-                                   ->where('teacher_id', $teacher->id)
-                                   ->findOrFail($sessionId);
+        try {
+            $teacher = $this->getCurrentTeacher();
+            
+            Log::info('Fetching attendance session', ['session_id' => $sessionId, 'teacher_id' => $teacher->id]);
+            
+            // Get session with related data
+            $session = AttendanceSession::with(['class'])
+                ->where('id', $sessionId)
+                ->first();
 
-        // Get all students in the class
-        $allStudents = DB::table('class_student')
-                        ->join('students', 'class_student.student_id', '=', 'students.id')
-                        ->where('class_student.class_model_id', $session->class_id)
-                        ->select(
-                            'students.id',
-                            'students.student_id',
-                            'students.name',
-                            'students.email',
-                            'students.year',
-                            'students.course',
-                            'students.section'
-                        )
-                        ->get();
+            if (!$session) {
+                Log::error('Session not found', ['session_id' => $sessionId]);
+                abort(404, 'Attendance session not found');
+            }
 
-        // Get attendance records for this session
-        $attendanceRecords = $session->attendanceRecords->pluck('student_id')->toArray();
+            // Verify teacher owns this session
+            if ($session->teacher_id != $teacher->id) {
+                Log::error('Unauthorized access to session', [
+                    'session_id' => $sessionId,
+                    'teacher_id' => $teacher->id,
+                    'session_teacher_id' => $session->teacher_id
+                ]);
+                abort(403, 'Unauthorized access to this session');
+            }
 
-        return Inertia::render('Teacher/AttendanceSession', [
-            'teacher' => $teacher,
-            'session' => $session,
-            'students' => $allStudents,
-            'attendance_records' => $attendanceRecords
-        ]);
+            // Get all enrolled students in the class
+            $allStudents = DB::table('class_student')
+                ->join('students', 'class_student.student_id', '=', 'students.id')
+                ->where('class_student.class_model_id', $session->class_id)
+                ->where('class_student.status', 'enrolled')
+                ->select(
+                    'students.id',
+                    'students.student_id as student_number',
+                    'students.name',
+                    'students.email',
+                    'students.year',
+                    'students.course',
+                    'students.section'
+                )
+                ->orderBy('students.name')
+                ->get();
+
+            Log::info('Found enrolled students', [
+                'class_id' => $session->class_id,
+                'student_count' => $allStudents->count()
+            ]);
+
+            // Get attendance records with full details
+            $records = AttendanceRecord::with(['student'])
+                ->where('attendance_session_id', $session->id)
+                ->get();
+
+            // Keep as array instead of keyed object
+            $attendanceRecords = $records->map(function($record) {
+                return [
+                    'id' => $record->id,
+                    'student_id' => $record->student_id,
+                    'status' => $record->status,
+                    'marked_at' => $record->marked_at ? $record->marked_at->format('Y-m-d H:i:s') : null,
+                    'marked_by' => $record->marked_by,
+                    'notes' => $record->notes,
+                    'student' => $record->student ? [
+                        'id' => $record->student->id,
+                        'name' => $record->student->name,
+                        'student_number' => $record->student->student_id,
+                        'email' => $record->student->email
+                    ] : null
+                ];
+            });
+
+            // Calculate current counts
+            $presentCount = $records->where('status', 'present')->count();
+            $absentCount = $records->where('status', 'absent')->count();
+            $excusedCount = $records->where('status', 'excused')->count();
+
+            // Update counts if they're different
+            if ($session->present_count !== $presentCount || 
+                $session->absent_count !== $absentCount || 
+                $session->excused_count !== $excusedCount ||
+                $session->total_students !== $allStudents->count()) {
+
+                $session->update([
+                    'present_count' => $presentCount,
+                    'absent_count' => $absentCount,
+                    'excused_count' => $excusedCount,
+                    'total_students' => $allStudents->count()
+                ]);
+
+                $session->refresh();
+            }
+
+            // Prepare session data for frontend
+            $sessionData = array_merge($session->toArray(), [
+                'class' => [
+                    'id' => $session->class->id,
+                    'name' => $session->class->name,
+                    'course' => $session->class->course,
+                    'section' => $session->class->section,
+                    'subject' => $session->class->subject,
+                    'room' => $session->class->room
+                ],
+                'date' => $session->session_date,
+                'start_time' => $session->start_time,
+                'end_time' => $session->end_time,
+                'duration_minutes' => $session->duration,
+                'total_students' => $allStudents->count(),
+                'present_count' => $presentCount,
+                'absent_count' => $absentCount,
+                'excused_count' => $excusedCount
+            ]);
+
+            Log::info('Returning attendance session data', [
+                'session_id' => $sessionId,
+                'student_count' => $allStudents->count(),
+                'present_count' => $presentCount
+            ]);
+
+            return Inertia::render('Teacher/AttendanceSession', [
+                'teacher' => [
+                    'id' => $teacher->id,
+                    'name' => $teacher->name,
+                    'email' => $teacher->email
+                ],
+                'session' => $sessionData,
+                'students' => $allStudents,
+                'attendance_records' => $attendanceRecords->values()->all() // Convert to plain array
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error in showAttendanceSession', [
+                'error' => $e->getMessage(),
+                'session_id' => $sessionId,
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            abort(500, 'Error loading attendance session');
+        }
     }
 
     /**

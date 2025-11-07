@@ -75,34 +75,67 @@ class AttendanceSession extends Model
     // Methods
     public function updateCounts()
     {
-        // Get fresh records directly from database
-        $records = AttendanceRecord::where('attendance_session_id', $this->id)->get();
-        
-        // Get total enrolled students
-        $totalStudents = DB::table('class_student')
-            ->where('class_model_id', $this->class_id)
-            ->where('status', 'enrolled')
-            ->count();
-        
-        // Calculate counts
-        $presentCount = $records->where('status', 'present')->count();
-        $absentCount = $records->where('status', 'absent')->count();
-        $excusedCount = $records->where('status', 'excused')->count();
-        
-        Log::info('Updating attendance session counts', [
-            'session_id' => $this->id,
-            'present_count' => $presentCount,
-            'absent_count' => $absentCount,
-            'excused_count' => $excusedCount,
-            'total_students' => $totalStudents
-        ]);
-        
-        $this->update([
-            'present_count' => $presentCount,
-            'absent_count' => $absentCount,
-            'excused_count' => $excusedCount,
-            'total_students' => $totalStudents
-        ]);
+        try {
+            DB::beginTransaction();
+
+            // Get enrolled student IDs
+            $enrolledStudents = DB::table('class_student')
+                ->where('class_model_id', $this->class_id)
+                ->where('status', 'enrolled')
+                ->pluck('student_id');
+
+            // Get total enrolled students
+            $totalStudents = $enrolledStudents->count();
+            
+            // Get fresh records directly from database for enrolled students only
+            $records = AttendanceRecord::where('attendance_session_id', $this->id)
+                ->whereIn('student_id', $enrolledStudents)
+                ->get();
+            
+            // Calculate counts
+            $presentCount = $records->where('status', 'present')->count();
+            $absentCount = $records->where('status', 'absent')->count();
+            $excusedCount = $records->where('status', 'excused')->count();
+            
+            Log::info('Calculating attendance session counts', [
+                'session_id' => $this->id,
+                'records_found' => $records->count(),
+                'present_count' => $presentCount,
+                'absent_count' => $absentCount,
+                'excused_count' => $excusedCount,
+                'total_students' => $totalStudents
+            ]);
+            
+            // Update directly in database
+            DB::table('attendance_sessions')
+                ->where('id', $this->id)
+                ->update([
+                    'present_count' => $presentCount,
+                    'absent_count' => $absentCount,
+                    'excused_count' => $excusedCount,
+                    'total_students' => $totalStudents,
+                    'updated_at' => now()
+                ]);
+
+            // Refresh the model
+            $this->refresh();
+            
+            DB::commit();
+            
+            Log::info('Successfully updated attendance counts', [
+                'session_id' => $this->id,
+                'new_present_count' => $this->present_count
+            ]);
+
+            return true;
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Failed to update attendance counts', [
+                'session_id' => $this->id,
+                'error' => $e->getMessage()
+            ]);
+            throw $e;
+        }
     }
 
     public function getAttendanceRateAttribute(): float
